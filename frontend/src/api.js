@@ -79,3 +79,5 @@ export function timeAgo(iso) {
 }
 
 export const money = (v) => `$${(v ?? 0).toFixed(v >= 1 || v === 0 ? 2 : 4)}`;
+
+export const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;

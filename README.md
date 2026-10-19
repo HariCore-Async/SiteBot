@@ -33,13 +33,12 @@ Give it a website link; it reads the site's public pages and becomes a chatbot (
 docker compose up -d                       # Postgres + pgvector on :5433
 python -m venv .venv && .venv/Scripts/pip install -r backend/requirements.txt   # (Linux/mac: .venv/bin/pip)
 .venv/Scripts/playwright install chromium
-cp backend/.env.example backend/.env       # fill in OPENROUTER_API_KEY, ADMIN_EMAILS; DEV_AUTH=true for local login
+cp backend/.env.example backend/.env       # fill in OPENROUTER_API_KEY, ADMIN_EMAILS, GOOGLE_CLIENT_ID
 cd backend && ../.venv/Scripts/uvicorn app.main:app --reload --port 8000
 # in another terminal
 cd frontend && npm install && npm run dev  # http://localhost:5173 (proxies /api to :8000)
 ```
 
-With `DEV_AUTH=true` the login page also lets you sign in by typing an email. Use this locally only.
 
 ## Deploy to Railway
 

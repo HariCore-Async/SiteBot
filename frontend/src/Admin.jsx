@@ -1,3 +1,4 @@
+import { useConfirm } from "./Confirm.jsx";
 import { useCallback, useEffect, useState } from "react";
 import { api, money, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
@@ -44,14 +45,16 @@ function Users({ me, onUsageChange }) {
               return (
                 <tr key={u.id}>
                   <td>
-                    <div className="strong">{u.name}</div>
+                    <div className="strong">
+                      {u.name} {u.locked_admin && <span className="pill accent" title="Permanent admin (ADMIN_EMAILS). Can't be demoted or removed.">Owner</span>}
+                    </div>
                     <div className="muted small">{u.email}</div>
                   </td>
                   <td>
                     <select
                       value={u.role}
                       disabled={u.locked_admin}
-                      title={u.locked_admin ? "Set by ADMIN_EMAILS" : ""}
+                      title={u.locked_admin ? "Permanent admin: can't be demoted" : ""}
                       onChange={(e) => update(u, { role: e.target.value })}
                     >
                       <option value="member">Member</option>
@@ -95,12 +98,26 @@ function Users({ me, onUsageChange }) {
 
 function Access() {
   const [data, setData] = useState({ grants: [], admin_emails: [] });
+  const [confirmAsk, confirmDialog] = useConfirm();
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
+  const [requireApproval, setRequireApproval] = useState(null);
   const load = useCallback(() => api.get("/api/admin/access").then(setData).catch((e) => setError(e.message)), []);
   useEffect(() => {
     load();
+    api.get("/api/admin/settings").then((s) => setRequireApproval(s.require_approval)).catch(() => {});
   }, [load]);
+
+  const toggleApproval = async () => {
+    const next = !requireApproval;
+    setRequireApproval(next);
+    try {
+      await api.put("/api/admin/settings", { require_approval: next });
+    } catch (e) {
+      setRequireApproval(!next);
+      setError(e.message);
+    }
+  };
 
   const add = async (e) => {
     e.preventDefault();
@@ -116,9 +133,30 @@ function Access() {
 
   return (
     <section>
+      <div className="setting-row">
+        <div>
+          <strong>Require approval for new users</strong>
+          <p className="muted">
+            {requireApproval
+              ? "On: only the emails and company domains approved below can sign in."
+              : "Off: anyone can create an account (their email is verified with a code) or sign in with Google."}
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={!!requireApproval}
+          aria-label="Require approval for new users"
+          className={`switch ${requireApproval ? "on" : ""}`}
+          disabled={requireApproval === null}
+          onClick={toggleApproval}
+        >
+          <span />
+        </button>
+      </div>
       <p className="muted">
-        Approve an email to let that person sign in with Google. Approving a company email (not Gmail, Outlook, etc.) gives everyone
-        at that company's domain access.
+        Approve an email to let that person sign in, with Google or by creating an account with that email. Approving a company
+        email (not Gmail, Outlook, etc.) gives everyone at that company's domain access.
+        {!requireApproval && " These approvals only take effect while approval is required."}
       </p>
       <form className="add-form compact" onSubmit={add}>
         <input type="email" required placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -155,7 +193,13 @@ function Access() {
                   <button
                     className="btn ghost small danger"
                     onClick={async () => {
-                      if (!confirm(`Remove access for ${g.email}?`)) return;
+                      const ok = await confirmAsk({
+                        title: `Remove access for ${g.email}?`,
+                        message: g.domain_access ? `Everyone at @${g.domain_access} will lose access too.` : "They won't be able to sign in any more.",
+                        confirmLabel: "Remove access",
+                        danger: true,
+                      });
+                      if (!ok) return;
                       await api.del(`/api/admin/access/${g.id}`);
                       load();
                     }}
@@ -168,6 +212,7 @@ function Access() {
           </tbody>
         </table>
       </div>
+      {confirmDialog}
     </section>
   );
 }
@@ -201,6 +246,9 @@ function Budget({ onUsageChange }) {
 
 function Bots({ sites, refreshSites }) {
   const [error, setError] = useState("");
+  // Per-bot "Read PDFs" choice for the next re-index; defaults to the bot's current setting.
+  const [pdfs, setPdfs] = useState({});
+  const [confirmAsk, confirmDialog] = useConfirm();
   const act = async (fn) => {
     setError("");
     try {
@@ -220,6 +268,7 @@ function Bots({ sites, refreshSites }) {
               <th>Bot</th>
               <th>Status</th>
               <th>Pages</th>
+              <th>Read PDFs</th>
               <th>Indexed</th>
               <th />
             </tr>
@@ -240,16 +289,32 @@ function Bots({ sites, refreshSites }) {
                   <span className={`status ${s.running ? "crawling" : s.status}`}>{s.running ? "indexing" : s.status}</span>
                 </td>
                 <td>{s.pages_indexed}</td>
+                <td>
+                  <label className="check nowrap" title="Takes effect when you re-index this bot">
+                    <input
+                      type="checkbox"
+                      checked={pdfs[s.id] ?? s.include_pdfs}
+                      onChange={(e) => setPdfs((p) => ({ ...p, [s.id]: e.target.checked }))}
+                    />
+                    {(pdfs[s.id] ?? s.include_pdfs) ? "On" : "Off"}
+                  </label>
+                </td>
                 <td className="muted small">{timeAgo(s.indexed_at) || "—"}</td>
                 <td className="actions">
-                  <button className="btn ghost small" disabled={s.running} onClick={() => act(() => api.post(`/api/admin/sites/${s.id}/reindex`))}>
+                  <button className="btn ghost small" disabled={s.running} onClick={() => act(() => api.post(`/api/admin/sites/${s.id}/reindex`, { include_pdfs: pdfs[s.id] ?? s.include_pdfs }))}>
                     Re-index
                   </button>
                   <button
                     className="btn ghost small danger"
                     disabled={s.running}
-                    onClick={() => {
-                      if (confirm(`Delete ${s.name} Chatbot and all its chats? This can't be undone.`)) act(() => api.del(`/api/admin/sites/${s.id}`));
+                    onClick={async () => {
+                      const ok = await confirmAsk({
+                        title: `Delete ${s.name} Chatbot?`,
+                        message: "This deletes the bot, its index and everyone's chats with it. You can't undo this.",
+                        confirmLabel: "Delete bot",
+                        danger: true,
+                      });
+                      if (ok) act(() => api.del(`/api/admin/sites/${s.id}`));
                     }}
                   >
                     Delete
@@ -260,6 +325,7 @@ function Bots({ sites, refreshSites }) {
           </tbody>
         </table>
       </div>
+      {confirmDialog}
     </section>
   );
 }

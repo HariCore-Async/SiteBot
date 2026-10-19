@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { api, timeAgo } from "./api.js";
+import { api } from "./api.js";
+import { useConfirm } from "./Confirm.jsx";
+import ReadAllBanner from "./ReadAll.jsx";
 import { BotIcon } from "./Sidebar.jsx";
 
 function progressOf(s) {
@@ -9,7 +11,7 @@ function progressOf(s) {
   return 2;
 }
 
-function Progress({ site, onChat, onRetry }) {
+function Progress({ site, onChat, onRetry, onSiteChanged }) {
   const pct = Math.round(progressOf(site));
   const failed = site.status === "failed";
   const done = site.ready && !site.running;
@@ -41,7 +43,7 @@ function Progress({ site, onChat, onRetry }) {
       <p className={failed ? "error" : "muted"}>{site.message}</p>
       <div className="stats">
         <span>
-          <strong>{site.pages_indexed}</strong> pages indexed
+          <strong>{site.pages_indexed}</strong> {site.pages_indexed === 1 ? "page" : "pages"} indexed
         </span>
         {site.pages_login > 0 && (
           <span title="Pages behind a login are skipped; SiteBot only reads public pages.">
@@ -59,6 +61,7 @@ function Progress({ site, onChat, onRetry }) {
           </span>
         )}
       </div>
+      {done && <ReadAllBanner site={site} onStarted={onSiteChanged} />}
       {done && (
         <button className="btn primary" onClick={() => onChat(site.id)}>
           Start chatting →
@@ -81,13 +84,32 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const submit = async (e, retryUrl) => {
+  const [confirmAsk, confirmDialog] = useConfirm();
+
+  const submit = async (e, retryUrl, confirmLarge = false) => {
     e?.preventDefault();
     setError("");
     setNotice("");
     setBusy(true);
+    if (!confirmLarge) setNotice("Checking the size of the website…");
     try {
-      const { site: s, existing } = await api.post("/api/sites", { url: retryUrl || url, include_pdfs: includePdfs });
+      const res = await api.post("/api/sites", { url: retryUrl || url, include_pdfs: includePdfs, confirm_large: confirmLarge });
+      if (res.needs_confirm) {
+        setNotice("");
+        setBusy(false);
+        const count = res.estimated_pages.toLocaleString();
+        const ok = await confirmAsk({
+          title: "This is a large website",
+          message:
+            `It has ${res.exact ? "about" : "at least"} ${count} pages, so reading all of it will take roughly ` +
+            `${res.estimated_minutes} minute${res.estimated_minutes === 1 ? "" : "s"}. You can leave while it works.` +
+            (res.capped ? ` For safety, indexing stops at ${res.max_pages.toLocaleString()} pages.` : ""),
+          confirmLabel: "Proceed",
+        });
+        if (ok) return submit(null, retryUrl || url, true);
+        return;
+      }
+      const { site: s, existing } = res;
       await refreshSites();
       if (existing && s.ready) {
         setNotice(`${s.name} is already indexed — opening its chatbot.`);
@@ -106,19 +128,17 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
   if (site) {
     return (
       <div className="page center">
-        <Progress site={site} onChat={onChat} onRetry={() => submit(null, site.root_url)} />
+        <Progress site={site} onChat={onChat} onRetry={() => submit(null, site.root_url, true)} onSiteChanged={refreshSites} />
+        {confirmDialog}
       </div>
     );
   }
 
-  const ready = sites.filter((s) => s.ready);
   return (
     <div className="page">
       <div className="hero">
-        <h1>Chat with any website</h1>
-        <p className="muted">
-          Paste a link. SiteBot reads the public pages of that site and answers questions using only what it finds there, with sources.
-        </p>
+        <h1>Create a chatbot</h1>
+        <p className="muted">Paste a website link. We'll read its public pages and build a chatbot that answers only from that site, with sources.</p>
         <form className="add-form" onSubmit={submit}>
           <input
             type="text"
@@ -140,25 +160,7 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
         {error && <p className="error">{error}</p>}
         {notice && <p className="notice">{notice}</p>}
       </div>
-
-      {ready.length > 0 && (
-        <>
-          <h3 className="section-title">Available chatbots</h3>
-          <div className="bot-grid">
-            {ready.map((s) => (
-              <button key={s.id} className="bot-card" onClick={() => onChat(s.id)}>
-                <BotIcon site={s} size={36} />
-                <div>
-                  <div className="bot-name">{s.name} Chatbot</div>
-                  <div className="muted small">
-                    {s.domain} · {s.pages_indexed} pages · {timeAgo(s.indexed_at)}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      {confirmDialog}
     </div>
   );
 }

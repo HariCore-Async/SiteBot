@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useConfirm } from "./Confirm.jsx";
 import { api, streamAnswer, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
+import { CloseIcon, RefreshIcon, SendIcon } from "./Icons.jsx";
+import BotInfo from "./BotInfo.jsx";
+import ReadAllBanner from "./ReadAll.jsx";
 
 /** Turns [n] markers into links to the cited page so they render as citation pills. */
 function linkCitations(text, sources) {
@@ -55,58 +59,13 @@ const mdComponents = {
     ),
 };
 
-function PagesDrawer({ site, onClose }) {
-  const [pages, setPages] = useState(null);
-  useEffect(() => {
-    api.get(`/api/sites/${site.id}/pages`).then(setPages).catch(() => setPages([]));
-  }, [site.id]);
-  const indexed = (pages || []).filter((p) => p.status === "indexed");
-  const skipped = (pages || []).filter((p) => p.status === "login" || p.status === "blocked");
-  return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <div className="drawer" onClick={(e) => e.stopPropagation()}>
-        <div className="drawer-head">
-          <h3>Pages this bot knows</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
-            ×
-          </button>
-        </div>
-        {!pages ? (
-          <p className="muted">Loading…</p>
-        ) : (
-          <>
-            <p className="muted small">
-              {indexed.length} pages indexed{skipped.length ? ` · ${skipped.length} skipped (login or blocked)` : ""}
-            </p>
-            <ul className="page-list">
-              {indexed.map((p) => (
-                <li key={p.url}>
-                  <a href={p.url} target="_blank" rel="noreferrer">
-                    {p.title || p.url}
-                  </a>
-                  <span className="muted small">{hostPath(p.url)}</span>
-                </li>
-              ))}
-              {skipped.map((p) => (
-                <li key={p.url} className="skipped">
-                  <span>{hostPath(p.url)}</span>
-                  <span className={`status ${p.status}`}>{p.status === "login" ? "needs login" : "blocked"}</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
+export default function ChatView({ site, chatId, onChatCreated, onAnswered, onClose, onSiteChanged }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [showPages, setShowPages] = useState(false);
+  const [confirmAsk, confirmDialog] = useConfirm();
+  const [suggestions, setSuggestions] = useState([]);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const createdChatRef = useRef(null);
@@ -116,6 +75,13 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
     if (!chatId || createdChatRef.current === chatId) return;
     api.get(`/api/chats/${chatId}/messages`).then(setMessages).catch((e) => setError(e.message));
   }, [chatId]);
+
+  useEffect(() => {
+    api
+      .get(`/api/sites/${site.id}/suggestions`)
+      .then((d) => setSuggestions(d.questions || []))
+      .catch(() => setSuggestions([]));
+  }, [site.id]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -160,33 +126,54 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
     }
   };
 
+  const asked = new Set(messages.filter((m) => m.role === "user").map((m) => m.content.trim().toLowerCase()));
+  const remaining = suggestions.filter((q) => !asked.has(q.toLowerCase())).slice(0, messages.length ? 3 : 6);
+
+  const startFresh = async () => {
+    const ok = await confirmAsk({
+      title: "Start a fresh chat?",
+      message: "This clears the current conversation. You can't undo this.",
+      confirmLabel: "Start fresh",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/api/chats/${chatId}/reset`);
+      setMessages([]);
+      setError("");
+      onAnswered();
+      inputRef.current?.focus();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   return (
     <div className="chat">
       <header className="chat-head">
         <BotIcon site={site} size={34} />
         <div className="chat-head-meta">
           <h2>{site.name} Chatbot</h2>
-          <div className="muted small">
-            <a href={site.root_url} target="_blank" rel="noreferrer">
-              {site.domain}
-            </a>{" "}
-            · {site.pages_indexed} pages · indexed {timeAgo(site.indexed_at)}
-          </div>
         </div>
-        <button className="btn ghost small" onClick={() => setShowPages(true)}>
-          Pages
-        </button>
+        <BotInfo site={site} />
+        {chatId && messages.length > 0 && (
+          <button className="btn ghost small" onClick={startFresh} disabled={sending}>
+            <RefreshIcon /> <span className="fresh-label">Start fresh chat</span>
+          </button>
+        )}
+        {onClose && (
+          <button className="icon-btn" onClick={onClose} title="Close this chat (your conversation is kept)" aria-label={`Close chat with ${site.name}`}>
+            <CloseIcon />
+          </button>
+        )}
       </header>
 
+      <ReadAllBanner site={site} onStarted={onSiteChanged} />
       <div className="messages" ref={scrollRef}>
         {messages.length === 0 && (
           <div className="empty">
             <BotIcon site={site} size={56} />
-            <h3>Ask {site.name} anything</h3>
-            <p className="muted">
-              I answer only from {site.domain}'s public pages and show my sources. If something isn't on the site, I'll say so instead of
-              guessing.
-            </p>
+            <h3>Hi, welcome to {site.name}!</h3>
           </div>
         )}
         {messages.map((m, i) => (
@@ -217,6 +204,16 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
       </div>
 
       {error && <div className="chat-error">{error}</div>}
+      <div className="composer-wrap">
+      {remaining.length > 0 && (
+        <div className={`suggestions ${messages.length === 0 ? "intro" : ""}`} aria-label="Suggested questions">
+          {remaining.map((q) => (
+            <button key={q} type="button" className="suggestion" disabled={sending} onClick={() => send(q)}>
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
       <form
         className="composer"
         onSubmit={(e) => {
@@ -239,12 +236,12 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
           maxLength={2000}
         />
         <button className="btn primary send" disabled={sending || !input.trim()} aria-label="Send">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14M13 6l6 6-6 6" />
-          </svg>
+          <SendIcon />
         </button>
       </form>
-      {showPages && <PagesDrawer site={site} onClose={() => setShowPages(false)} />}
+      <p className="composer-note">Answers come only from {site.domain}.</p>
+      </div>
+      {confirmDialog}
     </div>
   );
 }

@@ -9,17 +9,19 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import auth
+from . import accounts, auth
 from .auth import admin_user, current_user, email_domain, is_org_domain, login_user
 from .chat import answer_stream
 from .config import settings
-from .crawler import CrawlError, normalize_input_url
+from .crawler import Crawler, CrawlError, normalize_input_url
 from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .ingest import is_running, start_ingestion
-from .models import AccessGrant, Chat, Message, Page, Site, UsageEvent, User
+from .models import AccessGrant, Chat, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
+from .suggest import get_suggestions
 from .schemas import (
-    AddSite, Ask, BudgetIn, DevLogin, GoogleLogin, GrantIn, NewChat, UserUpdate, site_out, user_out,
+    AddSite, AdminSettingsIn, Ask, BudgetIn, ChangePassword, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    VerifyCode, site_out, user_out,
 )
 from .usage import global_budget, set_global_budget, usage_summary
 
@@ -40,8 +42,12 @@ app = FastAPI(title="SiteBot", lifespan=lifespan)
 # ---------- Auth ----------
 
 @app.get("/api/config")
-def public_config():
-    return {"google_client_id": settings.google_client_id, "dev_auth": settings.dev_auth}
+def public_config(db: Session = Depends(get_db)):
+    return {
+        "google_client_id": settings.google_client_id,
+        "require_approval": auth.approval_required(db),
+        "email_enabled": accounts.email_enabled(),
+    }
 
 
 @app.post("/api/auth/google")
@@ -57,15 +63,127 @@ def google_login(body: GoogleLogin, response: Response, db: Session = Depends(ge
         raise HTTPException(401, "Google sign-in failed. Please try again.")
     if not info.get("email_verified"):
         raise HTTPException(401, "Your Google email is not verified.")
-    user = login_user(db, response, info["email"], info.get("name", ""), info.get("picture", ""))
+    user = login_user(db, response, info["email"], info.get("name", ""), info.get("picture", ""), email_verified=True)
     return user_out(user)
 
 
-@app.post("/api/auth/dev")
-def dev_login(body: DevLogin, response: Response, db: Session = Depends(get_db)):
-    if not settings.dev_auth:
-        raise HTTPException(404)
-    return user_out(login_user(db, response, body.email))
+@app.post("/api/auth/signup")
+def signup(body: SignUp, db: Session = Depends(get_db)):
+    """Step 1 of creating an account: validate, then email a code. Nothing is saved until the code is confirmed."""
+    accounts.require_email()
+    email = body.email.strip().lower()
+    username = body.username.strip()
+    if not accounts.EMAIL_RE.match(email):
+        raise HTTPException(400, "Enter a valid email address.")
+    if not accounts.USERNAME_RE.match(username):
+        raise HTTPException(400, "Usernames are 3–30 characters: letters, numbers, dots and underscores.")
+    accounts.validate_password(body.password)
+    if body.password != body.confirm_password:
+        raise HTTPException(400, "The passwords don't match.")
+    if not auth.has_access(db, email):
+        raise HTTPException(403, "This email hasn't been approved yet. Ask an admin for access, then create your account.")
+    existing = db.scalar(select(User).where(User.email == email))
+    if existing and existing.password_hash:
+        raise HTTPException(409, "An account with this email already exists. Sign in instead.")
+    taken = accounts.find_account(db, username)
+    if taken and taken.email != email:
+        raise HTTPException(409, "That username is taken. Try another.")
+    payload = {"name": body.name.strip(), "username": username, "password_hash": accounts.hash_password(body.password)}
+    accounts.send_code(db, email, payload)
+    return {"otp_required": True, "email": email}
+
+
+@app.post("/api/auth/verify")
+def verify_email(body: VerifyCode, response: Response, db: Session = Depends(get_db)):
+    """Step 2: the emailed code proves the address exists. Creates the account and signs in."""
+    email = body.email.strip().lower()
+    payload = accounts.check_code(db, email, body.code)
+    if not payload.get("password_hash"):
+        raise HTTPException(400, "Please start again.")
+    taken = accounts.find_account(db, payload["username"])
+    if taken and taken.email != email:
+        raise HTTPException(409, "That username was just taken. Please sign up again with another.")
+    user = db.scalar(select(User).where(User.email == email))
+    if not user:
+        user = User(email=email, name=payload["name"])
+        db.add(user)
+    user.username = payload["username"]
+    user.password_hash = payload["password_hash"]
+    db.commit()
+    return user_out(login_user(db, response, email, payload["name"], email_verified=True))
+
+
+@app.post("/api/auth/resend")
+def resend_code(body: ResendCode, db: Session = Depends(get_db)):
+    email = body.email.strip().lower()
+    row = accounts.latest_code(db, email)
+    if not row:
+        raise HTTPException(400, "Please start again.")
+    accounts.send_code(db, email, dict(row.payload or {}))
+    return {"ok": True}
+
+
+@app.post("/api/auth/login")
+def password_login(body: PasswordLogin, response: Response, db: Session = Depends(get_db)):
+    user = accounts.find_account(db, body.identifier)
+    if user and not user.password_hash:
+        raise HTTPException(
+            401, "This account signs in with Google and has no password yet. Continue with Google, or use Forgot password to set one."
+        )
+    if not user or not accounts.check_password(body.password, user.password_hash):
+        raise HTTPException(401, "That email/username and password don't match.")
+    return user_out(login_user(db, response, user.email))
+
+
+@app.post("/api/auth/forgot")
+def forgot_password(body: ForgotPassword, db: Session = Depends(get_db)):
+    """Emails a reset code. Always answers the same way, so it can't be used to check who has an account."""
+    accounts.require_email()
+    user = accounts.find_account(db, body.identifier)
+    if user:
+        accounts.send_code(db, user.email, {"purpose": "reset"})
+    return {"ok": True}
+
+
+@app.post("/api/auth/reset")
+def reset_password(body: ResetPassword, response: Response, db: Session = Depends(get_db)):
+    accounts.validate_password(body.password)
+    if body.password != body.confirm_password:
+        raise HTTPException(400, "The passwords don't match.")
+    user = accounts.find_account(db, body.identifier)
+    if not user:
+        raise HTTPException(400, "That code isn't right. Check the email and try again.")
+    payload = accounts.check_code(db, user.email, body.code)
+    if payload.get("purpose") != "reset":
+        raise HTTPException(400, "Please request a new code.")
+    user.password_hash = accounts.hash_password(body.password)
+    db.commit()
+    return user_out(login_user(db, response, user.email, email_verified=True))
+
+
+@app.post("/api/me/password")
+def change_password(body: ChangePassword, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if user.password_hash and not accounts.check_password(body.current_password or "", user.password_hash):
+        raise HTTPException(400, "Your current password isn't right.")
+    accounts.validate_password(body.password)
+    if body.password != body.confirm_password:
+        raise HTTPException(400, "The passwords don't match.")
+    user.password_hash = accounts.hash_password(body.password)
+    db.commit()
+    return user_out(user)
+
+
+@app.post("/api/me/username")
+def set_username(body: SetUsername, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    username = body.username.strip()
+    if not accounts.USERNAME_RE.match(username):
+        raise HTTPException(400, "Usernames are 3–30 characters: letters, numbers, dots and underscores.")
+    taken = accounts.find_account(db, username)
+    if taken and taken.id != user.id:
+        raise HTTPException(409, "That username is taken. Try another.")
+    user.username = username
+    db.commit()
+    return user_out(user)
 
 
 @app.post("/api/auth/logout")
@@ -89,7 +207,24 @@ def my_usage(user: User = Depends(current_user), db: Session = Depends(get_db)):
 @app.get("/api/sites")
 def list_sites(user: User = Depends(current_user), db: Session = Depends(get_db)):
     sites = db.scalars(select(Site).order_by(Site.name)).all()
-    return [site_out(s) for s in sites]
+    hidden = set(db.scalars(select(HiddenSite.site_id).where(HiddenSite.user_id == user.id)))
+    return [{**site_out(s), "hidden": s.id in hidden} for s in sites]
+
+
+def unhide(db: Session, user: User, site_id: int) -> None:
+    db.execute(delete(HiddenSite).where(HiddenSite.user_id == user.id, HiddenSite.site_id == site_id))
+
+
+@app.post("/api/sites/{site_id}/remove")
+def remove_from_my_list(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Removes a bot from the user's own list and deletes their conversation with it. Other users are unaffected."""
+    if not db.get(Site, site_id):
+        raise HTTPException(404, "Bot not found")
+    db.execute(delete(Chat).where(Chat.user_id == user.id, Chat.site_id == site_id))
+    if not db.get(HiddenSite, (user.id, site_id)):
+        db.add(HiddenSite(user_id=user.id, site_id=site_id))
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/sites")
@@ -101,6 +236,11 @@ def add_site(body: AddSite, user: User = Depends(current_user), db: Session = De
 
     site = db.scalar(select(Site).where(Site.domain == domain))
     if site:
+        # Already in the library: reuse the index and put the bot in this user's list.
+        unhide(db, user, site.id)
+        if not db.scalar(select(Chat.id).where(Chat.user_id == user.id, Chat.site_id == site.id)):
+            db.add(Chat(user_id=user.id, site_id=site.id))
+        db.commit()
         # Same website, any page: reuse the index. Only a failed first attempt is retried.
         if site.status == "failed" and not is_running(site.id):
             site.root_url, site.include_pdfs, site.status = start_url, body.include_pdfs, "queued"
@@ -109,10 +249,23 @@ def add_site(body: AddSite, user: User = Depends(current_user), db: Session = De
             return {"site": site_out(site), "existing": False}
         return {"site": site_out(site), "existing": True}
 
+    if not body.confirm_large:
+        pages, exact = Crawler(domain, start_url, body.include_pdfs, lambda r: None, lambda f, d: None).estimate()
+        if pages > settings.large_site_pages:
+            return {
+                "needs_confirm": True,
+                "estimated_pages": pages,
+                "exact": exact,
+                "capped": pages >= settings.max_pages,
+                "max_pages": settings.max_pages,
+                # Rough: crawling ~4 pages/s plus local embedding.
+                "estimated_minutes": max(1, round(pages / 150)),
+            }
+
     label = domain.split(".")[-2] if "." in domain else domain
     site = Site(
         domain=domain, name=label.replace("-", " ").title(), root_url=start_url,
-        include_pdfs=body.include_pdfs, created_by=user.id, message="Queued…",
+        include_pdfs=body.include_pdfs, created_by=user.id, message="Queued…", full_crawl=body.confirm_large,
     )
     db.add(site)
     try:
@@ -132,6 +285,30 @@ def get_site(site_id: int, user: User = Depends(current_user), db: Session = Dep
     if not site:
         raise HTTPException(404, "Bot not found")
     return site_out(site)
+
+
+@app.post("/api/sites/{site_id}/read-all")
+def read_whole_site(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Re-indexes a bot that stopped at the page limit, this time reading the whole site. The old index keeps working."""
+    site = db.get(Site, site_id)
+    if not site:
+        raise HTTPException(404, "Bot not found")
+    if is_running(site_id):
+        raise HTTPException(409, "This bot is already being indexed.")
+    site.full_crawl = True
+    site.status = "queued"
+    site.message = "Queued to read the whole site…"
+    db.commit()
+    start_ingestion(site_id)
+    return site_out(site)
+
+
+@app.get("/api/sites/{site_id}/suggestions")
+def site_suggestions(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    site = db.get(Site, site_id)
+    if not site:
+        raise HTTPException(404, "Bot not found")
+    return {"questions": get_suggestions(db, site, user)}
 
 
 @app.get("/api/sites/{site_id}/pages")
@@ -168,8 +345,25 @@ def new_chat(body: NewChat, user: User = Depends(current_user), db: Session = De
     site = db.get(Site, body.site_id)
     if not site:
         raise HTTPException(404, "Bot not found")
-    chat = Chat(user_id=user.id, site_id=site.id)
-    db.add(chat)
+    # Each user has one conversation per bot; reuse it if it exists.
+    chat = db.scalar(
+        select(Chat).where(Chat.user_id == user.id, Chat.site_id == site.id).order_by(Chat.updated_at.desc()).limit(1)
+    )
+    if not chat:
+        chat = Chat(user_id=user.id, site_id=site.id)
+        db.add(chat)
+    unhide(db, user, site.id)
+    db.commit()
+    return chat_out(chat)
+
+
+@app.post("/api/chats/{chat_id}/reset")
+def reset_chat(chat_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Start fresh: clears the conversation (and with it the bot's memory of it)."""
+    chat = own_chat(db, chat_id, user)
+    db.execute(delete(Message).where(Message.chat_id == chat.id))
+    chat.title = "New chat"
+    chat.updated_at = utcnow()
     db.commit()
     return chat_out(chat)
 
@@ -232,7 +426,7 @@ def admin_update_user(user_id: int, body: UserUpdate, me: User = Depends(admin_u
         u.limit_usd = body.limit_usd
     if body.role is not None:
         if body.role == "member" and u.email in settings.admin_email_set:
-            raise HTTPException(400, "This admin is set by ADMIN_EMAILS and can't be demoted here.")
+            raise HTTPException(400, "This is a permanent admin and can't be demoted.")
         u.role = body.role
     db.commit()
     return user_out(u)
@@ -240,7 +434,11 @@ def admin_update_user(user_id: int, body: UserUpdate, me: User = Depends(admin_u
 
 @app.get("/api/admin/access")
 def admin_access(_: User = Depends(admin_user), db: Session = Depends(get_db)):
-    grants = db.scalars(select(AccessGrant).order_by(AccessGrant.created_at.desc())).all()
+    # Admins from ADMIN_EMAILS are listed once, as admins, even if they were also granted access by email.
+    grants = [
+        g for g in db.scalars(select(AccessGrant).order_by(AccessGrant.created_at.desc()))
+        if g.email.lower() not in settings.admin_email_set
+    ]
     return {
         "grants": [
             {"id": g.id, "email": g.email, "created_by": g.created_by, "created_at": g.created_at.isoformat(),
@@ -256,6 +454,8 @@ def admin_grant(body: GrantIn, me: User = Depends(admin_user), db: Session = Dep
     email = body.email.strip().lower()
     if "@" not in email or "." not in email.split("@")[-1]:
         raise HTTPException(400, "Enter a valid email address.")
+    if email in settings.admin_email_set:
+        raise HTTPException(400, "That email is already an admin, so it already has access.")
     if not db.scalar(select(AccessGrant).where(AccessGrant.email == email)):
         db.add(AccessGrant(email=email, created_by=me.email))
         db.commit()
@@ -267,6 +467,17 @@ def admin_revoke(grant_id: int, _: User = Depends(admin_user), db: Session = Dep
     db.execute(delete(AccessGrant).where(AccessGrant.id == grant_id))
     db.commit()
     return {"ok": True}
+
+
+@app.get("/api/admin/settings")
+def admin_get_settings(_: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return {"require_approval": auth.approval_required(db)}
+
+
+@app.put("/api/admin/settings")
+def admin_set_settings(body: AdminSettingsIn, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    auth.set_approval_required(db, body.require_approval)
+    return {"require_approval": body.require_approval}
 
 
 @app.get("/api/admin/budget")
@@ -281,12 +492,16 @@ def admin_set_budget(body: BudgetIn, _: User = Depends(admin_user), db: Session 
 
 
 @app.post("/api/admin/sites/{site_id}/reindex")
-def admin_reindex(site_id: int, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+def admin_reindex(
+    site_id: int, body: ReindexIn | None = None, _: User = Depends(admin_user), db: Session = Depends(get_db)
+):
     site = db.get(Site, site_id)
     if not site:
         raise HTTPException(404, "Bot not found")
     if is_running(site_id):
         raise HTTPException(409, "This bot is already being indexed.")
+    if body and body.include_pdfs is not None:
+        site.include_pdfs = body.include_pdfs
     site.status = "queued"
     site.message = "Queued for re-indexing…"
     db.commit()

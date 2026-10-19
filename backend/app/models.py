@@ -32,6 +32,11 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(200), default="")
     picture: Mapped[str] = mapped_column(Text, default="")
     role: Mapped[str] = mapped_column(String(20), default="member")  # admin | member
+    # Email/password accounts. Google-only users have no password and no username.
+    username: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Proven by a Google sign-in or by entering the one-time code we emailed.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     limit_usd: Mapped[float] = mapped_column(Float, default=settings.default_user_limit_usd)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -45,6 +50,21 @@ class AccessGrant(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True)
     created_by: Mapped[str] = mapped_column(String(320), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EmailCode(Base):
+    """A one-time code emailed to prove the address exists. Only a hash of the code is stored."""
+
+    __tablename__ = "email_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    code_hash: Mapped[str] = mapped_column(String(128))
+    # The sign-up details (name, username, password hash); the account is only created once the code is confirmed.
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -67,6 +87,10 @@ class Site(Base):
     status: Mapped[str] = mapped_column(String(20), default="queued")
     message: Mapped[str] = mapped_column(Text, default="")
     include_pdfs: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The user agreed to read the whole site (up to MAX_PAGES); otherwise indexing stops at LARGE_SITE_PAGES.
+    full_crawl: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The last index stopped at the page limit with pages still unread.
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
     # Generation that chat reads from; 0 means never indexed. A re-index builds generation+1, then swaps.
     generation: Mapped[int] = mapped_column(Integer, default=0)
     pages_found: Mapped[int] = mapped_column(Integer, default=0)
@@ -80,6 +104,8 @@ class Site(Base):
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Suggested starter questions, generated from the indexed pages on first request. None = not generated yet.
+    suggestions: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class Page(Base):
@@ -114,6 +140,16 @@ class Chunk(Base):
         Index("ix_chunks_site_gen", "site_id", "generation"),
         Index("ix_chunks_tsv", "tsv", postgresql_using="gin"),
     )
+
+
+class HiddenSite(Base):
+    """A bot the user removed from their own list. The shared index is untouched; adding it again un-hides it."""
+
+    __tablename__ = "hidden_sites"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Chat(Base):

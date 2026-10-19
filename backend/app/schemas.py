@@ -8,13 +8,54 @@ class GoogleLogin(BaseModel):
     credential: str
 
 
-class DevLogin(BaseModel):
-    email: str
+class SignUp(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=3, max_length=320)
+    username: str = Field(min_length=3, max_length=30)
+    password: str = Field(min_length=1, max_length=200)
+    confirm_password: str = Field(min_length=1, max_length=200)
+
+
+class VerifyCode(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    code: str = Field(min_length=6, max_length=6)
+
+
+class ResendCode(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class PasswordLogin(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class ForgotPassword(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+
+
+class ResetPassword(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+    code: str = Field(min_length=6, max_length=6)
+    password: str = Field(min_length=1, max_length=200)
+    confirm_password: str = Field(min_length=1, max_length=200)
+
+
+class ChangePassword(BaseModel):
+    current_password: str | None = Field(default=None, max_length=200)
+    password: str = Field(min_length=1, max_length=200)
+    confirm_password: str = Field(min_length=1, max_length=200)
+
+
+class SetUsername(BaseModel):
+    username: str = Field(min_length=3, max_length=30)
 
 
 class AddSite(BaseModel):
     url: str = Field(min_length=3, max_length=2000)
     include_pdfs: bool = False
+    # Set after the user has seen the large-site warning and chosen to go ahead.
+    confirm_large: bool = False
 
 
 class NewChat(BaseModel):
@@ -34,6 +75,15 @@ class GrantIn(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
 
+class ReindexIn(BaseModel):
+    # None keeps the bot's current setting.
+    include_pdfs: bool | None = None
+
+
+class AdminSettingsIn(BaseModel):
+    require_approval: bool
+
+
 class BudgetIn(BaseModel):
     global_budget_usd: float = Field(ge=0, le=100000)
 
@@ -49,6 +99,9 @@ def site_out(s: Site) -> dict:
         "running": is_running(s.id),
         "message": s.message,
         "include_pdfs": s.include_pdfs,
+        "full_crawl": s.full_crawl,
+        "truncated": s.truncated,
+        "created_by": s.created_by,
         "ready": s.generation > 0,
         "pages_found": s.pages_found,
         "pages_done": s.pages_done,
@@ -64,4 +117,7 @@ def site_out(s: Site) -> dict:
 
 
 def user_out(u: User) -> dict:
-    return {"id": u.id, "email": u.email, "name": u.name, "picture": u.picture, "role": u.role, "limit_usd": u.limit_usd}
+    return {
+        "id": u.id, "email": u.email, "username": u.username, "name": u.name, "picture": u.picture, "role": u.role,
+        "limit_usd": u.limit_usd, "has_password": bool(u.password_hash),
+    }

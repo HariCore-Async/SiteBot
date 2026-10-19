@@ -5,6 +5,10 @@ import Sidebar from "./Sidebar.jsx";
 import AddSite from "./AddSite.jsx";
 import ChatView from "./ChatView.jsx";
 import Admin from "./Admin.jsx";
+import Dashboard from "./Dashboard.jsx";
+import Settings from "./Settings.jsx";
+import Support from "./Support.jsx";
+import { MenuIcon } from "./Icons.jsx";
 import { applyInitialTheme } from "./ThemeToggle.jsx";
 
 applyInitialTheme();
@@ -15,12 +19,16 @@ export default function App() {
   const [sites, setSites] = useState([]);
   const [chats, setChats] = useState([]);
   const [usage, setUsage] = useState(null);
-  // view: {type: "add"} | {type: "progress", siteId} | {type: "chat", siteId, chatId} | {type: "admin"}
-  const [view, setView] = useState({ type: "add" });
+  // view: {type: "home"} | {type: "add"} | {type: "progress", siteId} | {type: "chat"} | {type: "admin"}
+  const [view, setView] = useState({ type: "home" });
+  // Open conversations, shown side by side (at most two). Closing one keeps its history on the server.
+  const [panes, setPanes] = useState([]);
+  const [activePane, setActivePane] = useState(0); // which pane shows on narrow screens
+  const [toast, setToast] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    api.get("/api/config").then(setConfig).catch(() => setConfig({ google_client_id: "", dev_auth: false }));
+    api.get("/api/config").then(setConfig).catch(() => setConfig({ google_client_id: "" }));
     api
       .get("/api/me")
       .then((m) => {
@@ -63,12 +71,59 @@ export default function App() {
     setMe(null);
     setChats([]);
     setSites([]);
-    setView({ type: "add" });
+    setView({ type: "home" });
+    setPanes([]);
   };
 
   const go = (v) => {
     setView(v);
     setSidebarOpen(false);
+  };
+
+  const MAX_PANES = 2;
+  const showToast = (text) => {
+    setToast(text);
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => setToast(""), 3500);
+  };
+
+  // Opens a bot's conversation: beside the current one if there's room.
+  const openBot = (siteId) => {
+    setSidebarOpen(false);
+    refreshChats(); // a bot just added from its link is now in the user's list
+    const open = panes.filter((id) => sites.some((s) => s.id === id));
+    const at = open.indexOf(siteId);
+    if (at >= 0) {
+      setActivePane(at);
+    } else if (open.length < MAX_PANES) {
+      setPanes([...open, siteId]);
+      setActivePane(open.length);
+    } else {
+      const name = sites.find((s) => s.id === siteId)?.name || "that bot";
+      showToast(`You can chat with two bots at a time. Close one to open ${name}.`);
+    }
+    setView({ type: "chat" });
+  };
+
+  const removeBot = async (siteId) => {
+    try {
+      await api.post(`/api/sites/${siteId}/remove`);
+    } catch (e) {
+      return showToast(e.message);
+    }
+    const rest = panes.filter((id) => id !== siteId);
+    setPanes(rest);
+    setActivePane(0);
+    if (view.type === "chat" && !rest.length) setView({ type: "home" });
+    refreshSites();
+    refreshChats();
+  };
+
+  const closePane = (siteId) => {
+    const rest = panes.filter((id) => id !== siteId);
+    setPanes(rest);
+    setActivePane(0);
+    if (!rest.length) setView({ type: "home" });
   };
 
   const siteById = useMemo(() => Object.fromEntries(sites.map((s) => [s.id, s])), [sites]);
@@ -77,7 +132,11 @@ export default function App() {
   if (!me) return <Login config={config} onLogin={onLogin} />;
 
   let main;
-  if (view.type === "admin" && me.role === "admin") {
+  if (view.type === "support") {
+    main = <Support />;
+  } else if (view.type === "settings") {
+    main = <Settings me={me} onUpdated={(u) => setMe((m) => ({ ...m, ...u }))} />;
+  } else if (view.type === "admin" && me.role === "admin") {
     main = <Admin me={me} sites={sites} refreshSites={refreshSites} onUsageChange={refreshUsage} />;
   } else if (view.type === "progress" && siteById[view.siteId]) {
     main = (
@@ -86,32 +145,62 @@ export default function App() {
         site={siteById[view.siteId]}
         refreshSites={refreshSites}
         onOpen={(siteId) => go({ type: "progress", siteId })}
-        onChat={(siteId) => go({ type: "chat", siteId, chatId: null })}
+        onChat={openBot}
       />
     );
-  } else if (view.type === "chat" && siteById[view.siteId]) {
+  } else if (view.type === "chat" && panes.some((id) => siteById[id])) {
+    const open = panes.filter((id) => siteById[id]);
+    const active = Math.min(activePane, open.length - 1);
     main = (
-      <ChatView
-        key={`${view.siteId}-${view.chatId ?? "new"}`}
-        site={siteById[view.siteId]}
-        chatId={view.chatId}
-        onChatCreated={(chatId) => {
-          setView({ type: "chat", siteId: view.siteId, chatId });
-          refreshChats();
-        }}
-        onAnswered={(u) => {
-          if (u) setUsage(u);
-          refreshChats();
-        }}
-      />
+      <div className={`panes count-${open.length}`}>
+        {open.length > 1 && (
+          <div className="pane-tabs" role="tablist">
+            {open.map((id, i) => (
+              <button key={id} role="tab" aria-selected={i === active} className={i === active ? "active" : ""} onClick={() => setActivePane(i)}>
+                {siteById[id].name}
+              </button>
+            ))}
+          </div>
+        )}
+        {open.map((id, i) => (
+          <div key={id} className={`pane ${i === active ? "active" : ""}`} onMouseDown={() => setActivePane(i)}>
+            <ChatView
+              site={siteById[id]}
+              // One conversation per bot: always the user's existing one, if any.
+              chatId={chats.find((c) => c.site_id === id)?.id ?? null}
+              onChatCreated={() => {
+                refreshChats();
+                refreshSites();
+              }}
+              onAnswered={(u) => {
+                if (u) setUsage(u);
+                refreshChats();
+              }}
+              onClose={() => closePane(id)}
+              onSiteChanged={refreshSites}
+            />
+          </div>
+        ))}
+      </div>
     );
-  } else {
+  } else if (view.type === "add") {
     main = (
       <AddSite
         sites={sites}
         refreshSites={refreshSites}
         onOpen={(siteId) => go({ type: "progress", siteId })}
-        onChat={(siteId) => go({ type: "chat", siteId, chatId: null })}
+        onChat={openBot}
+      />
+    );
+  } else {
+    const usedSites = new Set(chats.map((c) => c.site_id));
+    const myBots = sites.filter((s) => s.ready && !s.hidden && (s.created_by === me.id || usedSites.has(s.id)));
+    main = (
+      <Dashboard
+        me={me}
+        myBots={myBots}
+        onCreate={() => go({ type: "add" })}
+        onChat={openBot}
       />
     );
   }
@@ -124,22 +213,23 @@ export default function App() {
         chats={chats}
         usage={usage}
         view={view}
+        openSiteIds={view.type === "chat" ? panes : []}
         go={go}
+        openBot={openBot}
+        onRemoveBot={removeBot}
         logout={logout}
-        onDeleteChat={async (chat) => {
-          await api.del(`/api/chats/${chat.id}`);
-          if (view.chatId === chat.id) go({ type: "chat", siteId: chat.site_id, chatId: null });
-          refreshChats();
-        }}
       />
       <div className="scrim" onClick={() => setSidebarOpen(false)} />
       <main className="main">
         <button className="icon-btn menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
+          <MenuIcon />
         </button>
         {main}
+        {toast && (
+          <div className="toast" role="status">
+            {toast}
+          </div>
+        )}
       </main>
     </div>
   );

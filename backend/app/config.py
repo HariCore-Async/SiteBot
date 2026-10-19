@@ -11,9 +11,16 @@ class Settings(BaseSettings):
     # Comma-separated emails that are always admins.
     admin_emails: str = ""
     google_client_id: str = ""
-    # Local testing only: allows signing in by typing an email. Never enable in production.
-    dev_auth: bool = False
     cookie_secure: bool = False
+
+    # Sending one-time codes. Resend (HTTPS API) is used if its key is set, else SMTP; with neither,
+    # codes are printed to the server log so local testing still works.
+    resend_api_key: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    mail_from: str = "SiteBot <no-reply@example.com>"
 
     openrouter_api_key: str = ""
     openrouter_model: str = "anthropic/claude-haiku-5.5"
@@ -24,8 +31,11 @@ class Settings(BaseSettings):
     global_budget_usd: float = 10.0
     default_user_limit_usd: float = 1.0
 
-    max_pages: int = 100
-    max_depth: int = 3
+    # Whole sites are read; this is only a safety ceiling so a huge site can't run forever.
+    max_pages: int = 5000
+    max_depth: int = 8
+    # Above this many pages, the user is warned (with a time estimate) before indexing starts.
+    large_site_pages: int = 300
     crawl_concurrency: int = 8
     enable_playwright: bool = True
 

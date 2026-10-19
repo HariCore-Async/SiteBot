@@ -92,6 +92,12 @@ def canonical(url: str) -> str:
     return urlunparse((p.scheme.lower(), (p.netloc or "").lower(), path, "", query, ""))
 
 
+def dedup_key(url: str) -> str:
+    """The same page reached over http/https or with/without www. counts once."""
+    p = urlparse(url)
+    return f"{host_key(url)}{p.path}?{p.query}"
+
+
 def is_crawlable(url: str, domain: str) -> bool:
     p = urlparse(url)
     if p.scheme not in ("http", "https") or host_key(url) != domain:
@@ -272,6 +278,7 @@ class Crawler:
         self.content_hashes: set[str] = set()
         self.homepage_html = ""
         self.homepage_url = ""
+        self.truncated = False  # stopped at max_pages with pages still queued
 
     # robots + sitemaps
     def _load_robots(self, base: str) -> list[str]:
@@ -292,9 +299,9 @@ class Crawler:
 
     def _sitemap_urls(self, sitemaps: list[str]) -> list[str]:
         urls: list[str] = []
-        queue = deque(sitemaps[:5])
+        queue = deque(sitemaps[:10])
         fetched = 0
-        while queue and fetched < 12 and len(urls) < self.max_pages * 5:
+        while queue and fetched < 60 and len(urls) < self.max_pages * 2:
             sm = queue.popleft()
             fetched += 1
             try:
@@ -357,6 +364,26 @@ class Crawler:
             return PageResult(url=final_url, status="empty", links=links, html=html)
         return PageResult(url=final_url, status="indexed", title=extract_title(html), text=text, rendered=rendered, links=links, html=html)
 
+    def estimate(self) -> tuple[int, bool]:
+        """Quick page count before indexing: (pages, exact). Combines the sitemap with the homepage's links;
+        sites often list only some pages in their sitemap, so this is usually a lower bound."""
+        try:
+            base = f"{urlparse(self.start_url).scheme}://{urlparse(self.start_url).netloc}/"
+            urls = {dedup_key(u) for u in self._sitemap_urls(self._load_robots(base)) if self._allowed(u)}
+            try:
+                r = self.client.get(self.start_url)
+                for u in extract_links(r.text, str(r.url)):
+                    u = canonical(u)
+                    if is_crawlable(u, self.domain) and self._allowed(u):
+                        urls.add(dedup_key(u))
+            except httpx.HTTPError:
+                pass
+            if not self.include_pdfs:
+                urls = {u for u in urls if not u.split("?")[0].lower().endswith(".pdf")}
+            return min(max(len(urls), 1), self.max_pages), False
+        finally:
+            self.client.close()
+
     def run(self) -> None:
         try:
             base = f"{urlparse(self.start_url).scheme}://{urlparse(self.start_url).netloc}/"
@@ -365,9 +392,12 @@ class Crawler:
 
             def enqueue(u: str, depth: int, front: bool = False) -> None:
                 u = canonical(u)
-                if u in self.seen or not is_crawlable(u, self.domain) or not self._allowed(u):
+                key = dedup_key(u)
+                if key in self.seen or not is_crawlable(u, self.domain) or not self._allowed(u):
                     return
-                self.seen.add(u)
+                if not self.include_pdfs and urlparse(u).path.lower().endswith(".pdf"):
+                    return  # don't spend the page budget downloading PDFs we won't read
+                self.seen.add(key)
                 (frontier.appendleft if front else frontier.append)((u, depth))
 
             enqueue(base, 0)
@@ -398,6 +428,7 @@ class Crawler:
                         result.html = ""  # free memory
                         self.on_page(result)
                         self.on_progress(min(len(self.seen), self.max_pages), processed)
+                self.truncated = bool(frontier)
         finally:
             self.renderer.close()
             self.client.close()
