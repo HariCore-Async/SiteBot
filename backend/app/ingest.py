@@ -132,6 +132,7 @@ def run_ingestion(site_id: int) -> None:
         site.generation = gen
         site.status = "ready"
         site.indexed_at = utcnow()
+        site.suggestions = None  # regenerated from the new pages on next request
         parts = [f"Indexed {site.pages_indexed} pages"]
         if site.pages_login:
             parts.append(f"{site.pages_login} skipped (login required)")

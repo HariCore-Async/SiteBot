@@ -107,6 +107,7 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [showPages, setShowPages] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const createdChatRef = useRef(null);
@@ -116,6 +117,13 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
     if (!chatId || createdChatRef.current === chatId) return;
     api.get(`/api/chats/${chatId}/messages`).then(setMessages).catch((e) => setError(e.message));
   }, [chatId]);
+
+  useEffect(() => {
+    api
+      .get(`/api/sites/${site.id}/suggestions`)
+      .then((d) => setSuggestions(d.questions || []))
+      .catch(() => setSuggestions([]));
+  }, [site.id]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -160,6 +168,9 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
     }
   };
 
+  const asked = new Set(messages.filter((m) => m.role === "user").map((m) => m.content.trim().toLowerCase()));
+  const remaining = suggestions.filter((q) => !asked.has(q.toLowerCase()));
+
   const startFresh = async () => {
     if (!confirm("Start a fresh chat? This clears the current conversation.")) return;
     try {
@@ -200,10 +211,9 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
         {messages.length === 0 && (
           <div className="empty">
             <BotIcon site={site} size={56} />
-            <h3>Ask {site.name} anything</h3>
+            <h3>Hi, welcome to {site.name}!</h3>
             <p className="muted">
-              I answer only from {site.domain}'s public pages and show my sources. If something isn't on the site, I'll say so instead of
-              guessing.
+              Ask me anything about {site.name}. My answers come only from {site.domain}, with links to the pages they're from.
             </p>
           </div>
         )}
@@ -235,6 +245,15 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
       </div>
 
       {error && <div className="chat-error">{error}</div>}
+      {remaining.length > 0 && (
+        <div className={`suggestions ${messages.length === 0 ? "intro" : ""}`} aria-label="Suggested questions">
+          {remaining.map((q) => (
+            <button key={q} type="button" className="suggestion" disabled={sending} onClick={() => send(q)}>
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
       <form
         className="composer"
         onSubmit={(e) => {

@@ -32,6 +32,8 @@ def _body(model: str, messages: list[dict], max_tokens: int, stream: bool) -> di
         "max_tokens": max_tokens,
         "stream": stream,
         "usage": {"include": True},
+        # Extended thinking can use up a small max_tokens budget and return empty text.
+        "reasoning": {"enabled": False},
     }
 
 

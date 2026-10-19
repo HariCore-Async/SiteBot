@@ -28,6 +28,9 @@ def init_db() -> None:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
+        # Columns added after the first release; create_all doesn't alter existing tables.
+        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS suggestions JSON"))
+    with engine.begin() as conn:
         # A crawl that was running when the server stopped can never finish; mark it so it can be retried.
         conn.execute(
             text(

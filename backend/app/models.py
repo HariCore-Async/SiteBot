@@ -80,6 +80,8 @@ class Site(Base):
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Suggested starter questions, generated from the indexed pages on first request. None = not generated yet.
+    suggestions: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class Page(Base):

@@ -879,6 +879,43 @@ a.cite {
   border-radius: 8px;
   font-size: 14px;
 }
+/* Suggested questions: stay above the message box for the whole conversation */
+.suggestions {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px max(24px, calc((100% - 820px) / 2)) 0;
+  scrollbar-width: none;
+}
+.suggestions::-webkit-scrollbar {
+  display: none;
+}
+.suggestions.intro {
+  flex-wrap: wrap;
+  justify-content: center;
+  overflow-x: visible;
+}
+.suggestion {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
+}
+.suggestion:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.suggestion:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .composer {
   display: flex;
   gap: 8px;
@@ -1081,6 +1118,14 @@ td select {
   }
   .composer {
     padding: 10px 16px 16px;
+  }
+  .suggestions {
+    padding: 4px 16px 0;
+  }
+  .suggestions.intro {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
   }
   .bubble {
     max-width: 92%;

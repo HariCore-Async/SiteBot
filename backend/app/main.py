@@ -18,6 +18,7 @@ from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .ingest import is_running, start_ingestion
 from .models import AccessGrant, Chat, Message, Page, Site, UsageEvent, User, utcnow
+from .suggest import get_suggestions
 from .schemas import (
     AddSite, Ask, BudgetIn, DevLogin, GoogleLogin, GrantIn, NewChat, UserUpdate, site_out, user_out,
 )
@@ -132,6 +133,14 @@ def get_site(site_id: int, user: User = Depends(current_user), db: Session = Dep
     if not site:
         raise HTTPException(404, "Bot not found")
     return site_out(site)
+
+
+@app.get("/api/sites/{site_id}/suggestions")
+def site_suggestions(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    site = db.get(Site, site_id)
+    if not site:
+        raise HTTPException(404, "Bot not found")
+    return {"questions": get_suggestions(db, site, user)}
 
 
 @app.get("/api/sites/{site_id}/pages")
