@@ -8,6 +8,28 @@ class GoogleLogin(BaseModel):
     credential: str
 
 
+class SignUp(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=3, max_length=320)
+    username: str = Field(min_length=3, max_length=30)
+    password: str = Field(min_length=1, max_length=200)
+    confirm_password: str = Field(min_length=1, max_length=200)
+
+
+class VerifyCode(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    code: str = Field(min_length=6, max_length=6)
+
+
+class ResendCode(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class PasswordLogin(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+    password: str = Field(min_length=1, max_length=200)
+
+
 class DevLogin(BaseModel):
     email: str
 
@@ -64,4 +86,7 @@ def site_out(s: Site) -> dict:
 
 
 def user_out(u: User) -> dict:
-    return {"id": u.id, "email": u.email, "name": u.name, "picture": u.picture, "role": u.role, "limit_usd": u.limit_usd}
+    return {
+        "id": u.id, "email": u.email, "username": u.username, "name": u.name, "picture": u.picture, "role": u.role,
+        "limit_usd": u.limit_usd,
+    }

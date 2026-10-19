@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import auth
+from . import accounts, auth
 from .auth import admin_user, current_user, email_domain, is_org_domain, login_user
 from .chat import answer_stream
 from .config import settings
@@ -20,7 +20,8 @@ from .ingest import is_running, start_ingestion
 from .models import AccessGrant, Chat, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
-    AddSite, Ask, BudgetIn, DevLogin, GoogleLogin, GrantIn, NewChat, UserUpdate, site_out, user_out,
+    AddSite, Ask, BudgetIn, DevLogin, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    VerifyCode, site_out, user_out,
 )
 from .usage import global_budget, set_global_budget, usage_summary
 
@@ -58,8 +59,71 @@ def google_login(body: GoogleLogin, response: Response, db: Session = Depends(ge
         raise HTTPException(401, "Google sign-in failed. Please try again.")
     if not info.get("email_verified"):
         raise HTTPException(401, "Your Google email is not verified.")
-    user = login_user(db, response, info["email"], info.get("name", ""), info.get("picture", ""))
+    user = login_user(db, response, info["email"], info.get("name", ""), info.get("picture", ""), email_verified=True)
     return user_out(user)
+
+
+@app.post("/api/auth/signup")
+def signup(body: SignUp, db: Session = Depends(get_db)):
+    """Step 1 of creating an account: validate, then email a code. Nothing is saved until the code is confirmed."""
+    email = body.email.strip().lower()
+    username = body.username.strip()
+    if not accounts.EMAIL_RE.match(email):
+        raise HTTPException(400, "Enter a valid email address.")
+    if not accounts.USERNAME_RE.match(username):
+        raise HTTPException(400, "Usernames are 3–30 characters: letters, numbers, dots and underscores.")
+    accounts.validate_password(body.password)
+    if body.password != body.confirm_password:
+        raise HTTPException(400, "The passwords don't match.")
+    if not auth.has_access(db, email):
+        raise HTTPException(403, "This email hasn't been approved yet. Ask an admin for access, then create your account.")
+    existing = db.scalar(select(User).where(User.email == email))
+    if existing and existing.password_hash:
+        raise HTTPException(409, "An account with this email already exists. Sign in instead.")
+    taken = accounts.find_account(db, username)
+    if taken and taken.email != email:
+        raise HTTPException(409, "That username is taken. Try another.")
+    payload = {"name": body.name.strip(), "username": username, "password_hash": accounts.hash_password(body.password)}
+    accounts.send_code(db, email, payload)
+    return {"otp_required": True, "email": email}
+
+
+@app.post("/api/auth/verify")
+def verify_email(body: VerifyCode, response: Response, db: Session = Depends(get_db)):
+    """Step 2: the emailed code proves the address exists. Creates the account and signs in."""
+    email = body.email.strip().lower()
+    payload = accounts.check_code(db, email, body.code)
+    if not payload.get("password_hash"):
+        raise HTTPException(400, "Please start again.")
+    taken = accounts.find_account(db, payload["username"])
+    if taken and taken.email != email:
+        raise HTTPException(409, "That username was just taken. Please sign up again with another.")
+    user = db.scalar(select(User).where(User.email == email))
+    if not user:
+        user = User(email=email, name=payload["name"])
+        db.add(user)
+    user.username = payload["username"]
+    user.password_hash = payload["password_hash"]
+    db.commit()
+    return user_out(login_user(db, response, email, payload["name"], email_verified=True))
+
+
+@app.post("/api/auth/resend")
+def resend_code(body: ResendCode, db: Session = Depends(get_db)):
+    email = body.email.strip().lower()
+    row = accounts.latest_code(db, email)
+    if not row:
+        raise HTTPException(400, "Please start again.")
+    accounts.send_code(db, email, dict(row.payload or {}))
+    return {"ok": True}
+
+
+@app.post("/api/auth/login")
+def password_login(body: PasswordLogin, response: Response, db: Session = Depends(get_db)):
+    user = accounts.find_account(db, body.identifier)
+    if not user or not accounts.check_password(body.password, user.password_hash):
+        raise HTTPException(401, "That email/username and password don't match.")
+    return user_out(login_user(db, response, user.email))
 
 
 @app.post("/api/auth/dev")

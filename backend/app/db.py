@@ -30,6 +30,9 @@ def init_db() -> None:
     with engine.begin() as conn:
         # Columns added after the first release; create_all doesn't alter existing tables.
         conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS suggestions JSON"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(40) UNIQUE"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false"))
     with engine.begin() as conn:
         # A crawl that was running when the server stopped can never finish; mark it so it can be retried.
         conn.execute(

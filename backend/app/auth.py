@@ -43,7 +43,9 @@ def has_access(db: Session, email: str) -> bool:
     return False
 
 
-def login_user(db: Session, response: Response, email: str, name: str = "", picture: str = "") -> User:
+def login_user(
+    db: Session, response: Response, email: str, name: str = "", picture: str = "", email_verified: bool = False
+) -> User:
     email = email.lower().strip()
     if not has_access(db, email):
         raise HTTPException(403, "Your email has not been approved. Ask an admin for access.")
@@ -54,6 +56,8 @@ def login_user(db: Session, response: Response, email: str, name: str = "", pict
     else:
         user.name = name or user.name
         user.picture = picture or user.picture
+    if email_verified:
+        user.email_verified = True
     if email in settings.admin_email_set:
         user.role = "admin"
     user.last_seen_at = utcnow()

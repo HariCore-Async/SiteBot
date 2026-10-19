@@ -193,6 +193,8 @@ h3 {
 
 input[type="text"],
 input[type="email"],
+input[type="password"],
+input:not([type]),
 input[type="number"],
 select,
 textarea {
@@ -276,7 +278,7 @@ textarea:focus {
 }
 .login-card {
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -308,6 +310,119 @@ textarea:focus {
 }
 .google-btn {
   min-height: 44px;
+  display: flex;
+  justify-content: center;
+}
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.login-brand p {
+  margin: 0;
+  font-size: 14px;
+}
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.auth-tabs button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 8px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.auth-tabs button.active {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.field input {
+  width: 100%;
+  font-weight: 400;
+}
+.field small {
+  font-weight: 400;
+  font-size: 12px;
+}
+.auth-form .btn.primary {
+  margin-top: 4px;
+  padding: 11px;
+}
+.verify-intro h2 {
+  margin: 0 0 6px;
+  font-size: 19px;
+  text-align: center;
+}
+.verify-intro p {
+  margin: 0;
+  font-size: 14px;
+  text-align: center;
+}
+.otp-input {
+  text-align: center;
+  font-size: 26px !important;
+  letter-spacing: 0.5em;
+  padding: 12px 12px 12px calc(12px + 0.5em) !important;
+  font-variant-numeric: tabular-nums;
+}
+.auth-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.link-btn:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 .dev-login {
   display: flex;
@@ -315,7 +430,14 @@ textarea:focus {
   gap: 8px;
   width: 100%;
   border-top: 1px dashed var(--border);
-  padding-top: 16px;
+  padding-top: 14px;
+}
+.dev-row {
+  display: flex;
+  gap: 8px;
+}
+.dev-row input {
+  flex: 1;
 }
 .tag {
   align-self: center;

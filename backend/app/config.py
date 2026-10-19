@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     dev_auth: bool = False
     cookie_secure: bool = False
 
+    # Sending one-time codes. Resend (HTTPS API) is used if its key is set, else SMTP; with neither,
+    # codes are printed to the server log so local testing still works.
+    resend_api_key: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    mail_from: str = "SiteBot <no-reply@example.com>"
+
     openrouter_api_key: str = ""
     openrouter_model: str = "anthropic/claude-haiku-5.5"
     # Used for query rewriting and answer verification.

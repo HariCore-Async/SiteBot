@@ -32,6 +32,11 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(200), default="")
     picture: Mapped[str] = mapped_column(Text, default="")
     role: Mapped[str] = mapped_column(String(20), default="member")  # admin | member
+    # Email/password accounts. Google-only users have no password and no username.
+    username: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Proven by a Google sign-in or by entering the one-time code we emailed.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     limit_usd: Mapped[float] = mapped_column(Float, default=settings.default_user_limit_usd)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -45,6 +50,21 @@ class AccessGrant(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True)
     created_by: Mapped[str] = mapped_column(String(320), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EmailCode(Base):
+    """A one-time code emailed to prove the address exists. Only a hash of the code is stored."""
+
+    __tablename__ = "email_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    code_hash: Mapped[str] = mapped_column(String(128))
+    # The sign-up details (name, username, password hash); the account is only created once the code is confirmed.
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
