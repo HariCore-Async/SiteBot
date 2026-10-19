@@ -55,7 +55,7 @@ function UsageBar({ usage }) {
 
 const STATUS_LABEL = { queued: "Queued", crawling: "Reading", embedding: "Learning", failed: "Failed" };
 
-export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
+export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go, openBot, logout }) {
   const [query, setQuery] = useState("");
   const chatsBySite = {};
   for (const c of chats) (chatsBySite[c.site_id] ||= []).push(c);
@@ -99,16 +99,15 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
         {q && ordered.length === 0 && <p className="muted small pad">No chatbots match "{query.trim()}". Create one from its website link.</p>}
         {!q && ordered.length === 0 && <p className="muted small pad">You haven't used any chatbots yet. Create one, or search the library.</p>}
         {ordered.map((s) => {
-          const siteChats = chatsBySite[s.id] || [];
           const busy = !s.ready && s.status !== "failed";
           return (
             <div key={s.id} className="bot-group">
               <div
-                className={`bot-row ${view.siteId === s.id && view.type !== "admin" ? "active" : ""}`}
+                className={`bot-row ${openSiteIds.includes(s.id) || (view.type === "progress" && view.siteId === s.id) ? "active" : ""}`}
                 onClick={() => {
                   setQuery("");
                   if (!s.ready) return go({ type: "progress", siteId: s.id });
-                  go({ type: "chat", siteId: s.id, chatId: siteChats[0]?.id ?? null });
+                  openBot(s.id);
                 }}
               >
                 <BotIcon site={s} size={24} />

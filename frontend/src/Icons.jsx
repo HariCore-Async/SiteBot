@@ -88,3 +88,9 @@ export const HomeIcon = ({ size = 17 }) => (
     <path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />
   </svg>
 );
+
+export const CloseIcon = ({ size = 17 }) => (
+  <svg {...base(size)}>
+    <path d="M6 6l12 12M18 6 6 18" />
+  </svg>
+);

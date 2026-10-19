@@ -1111,6 +1111,50 @@ input[type="search"]::-webkit-search-cancel-button {
   color: var(--muted);
 }
 
+/* Two chats side by side */
+.panes {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.pane {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+.pane + .pane {
+  border-left: 1px solid var(--border);
+}
+.pane-tabs {
+  display: none;
+}
+.panes.count-2 .fresh-label {
+  display: none;
+}
+.panes.count-2 .messages,
+.panes.count-2 .composer-wrap {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+.panes.count-2 .chat-error {
+  width: calc(100% - 40px);
+}
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 13.5px;
+  box-shadow: var(--shadow);
+  animation: pop-in 0.15s ease-out;
+}
+
 /* ---------- Confirm dialog ---------- */
 .modal-backdrop {
   position: fixed;
@@ -1489,5 +1533,46 @@ td select {
   }
   .msg.user .bubble {
     max-width: 88%;
+  }
+  .panes.count-2 {
+    flex-direction: column;
+  }
+  .pane-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 10px 12px 0 54px;
+    flex: none;
+  }
+  .pane-tabs button {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: none;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .pane-tabs button.active {
+    background: var(--subtle);
+    color: var(--text);
+  }
+  .panes.count-2 .pane {
+    display: none;
+    min-height: 0;
+  }
+  .panes.count-2 .pane.active {
+    display: block;
+  }
+  .panes.count-2 .pane + .pane {
+    border-left: 0;
+  }
+  .panes.count-2 .chat-head {
+    padding-left: 16px;
   }
 }

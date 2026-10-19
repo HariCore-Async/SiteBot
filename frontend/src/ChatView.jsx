@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import { useConfirm } from "./Confirm.jsx";
 import { api, streamAnswer, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
-import { RefreshIcon, SendIcon } from "./Icons.jsx";
+import { CloseIcon, RefreshIcon, SendIcon } from "./Icons.jsx";
 
 /** Turns [n] markers into links to the cited page so they render as citation pills. */
 function linkCitations(text, sources) {
@@ -57,7 +57,7 @@ const mdComponents = {
     ),
 };
 
-export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
+export default function ChatView({ site, chatId, onChatCreated, onAnswered, onClose }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -161,7 +161,12 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
         </div>
         {chatId && messages.length > 0 && (
           <button className="btn ghost small" onClick={startFresh} disabled={sending}>
-            <RefreshIcon /> Start fresh chat
+            <RefreshIcon /> <span className="fresh-label">Start fresh chat</span>
+          </button>
+        )}
+        {onClose && (
+          <button className="icon-btn" onClick={onClose} title="Close this chat (your conversation is kept)" aria-label={`Close chat with ${site.name}`}>
+            <CloseIcon />
           </button>
         )}
       </header>
