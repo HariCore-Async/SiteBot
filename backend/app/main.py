@@ -20,7 +20,7 @@ from .ingest import is_running, start_ingestion
 from .models import AccessGrant, Chat, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
-    AddSite, Ask, BudgetIn, DevLogin, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, Ask, BudgetIn, ReindexIn, DevLogin, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     VerifyCode, site_out, user_out,
 )
 from .usage import global_budget, set_global_budget, usage_summary
@@ -370,12 +370,16 @@ def admin_set_budget(body: BudgetIn, _: User = Depends(admin_user), db: Session 
 
 
 @app.post("/api/admin/sites/{site_id}/reindex")
-def admin_reindex(site_id: int, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+def admin_reindex(
+    site_id: int, body: ReindexIn | None = None, _: User = Depends(admin_user), db: Session = Depends(get_db)
+):
     site = db.get(Site, site_id)
     if not site:
         raise HTTPException(404, "Bot not found")
     if is_running(site_id):
         raise HTTPException(409, "This bot is already being indexed.")
+    if body and body.include_pdfs is not None:
+        site.include_pdfs = body.include_pdfs
     site.status = "queued"
     site.message = "Queued for re-indexing…"
     db.commit()

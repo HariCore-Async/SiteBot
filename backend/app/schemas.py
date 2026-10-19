@@ -56,6 +56,11 @@ class GrantIn(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
 
+class ReindexIn(BaseModel):
+    # None keeps the bot's current setting.
+    include_pdfs: bool | None = None
+
+
 class BudgetIn(BaseModel):
     global_budget_usd: float = Field(ge=0, le=100000)
 

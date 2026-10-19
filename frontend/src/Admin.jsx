@@ -210,6 +210,8 @@ function Budget({ onUsageChange }) {
 
 function Bots({ sites, refreshSites }) {
   const [error, setError] = useState("");
+  // Per-bot "Read PDFs" choice for the next re-index; defaults to the bot's current setting.
+  const [pdfs, setPdfs] = useState({});
   const [confirmAsk, confirmDialog] = useConfirm();
   const act = async (fn) => {
     setError("");
@@ -230,6 +232,7 @@ function Bots({ sites, refreshSites }) {
               <th>Bot</th>
               <th>Status</th>
               <th>Pages</th>
+              <th>Read PDFs</th>
               <th>Indexed</th>
               <th />
             </tr>
@@ -250,9 +253,19 @@ function Bots({ sites, refreshSites }) {
                   <span className={`status ${s.running ? "crawling" : s.status}`}>{s.running ? "indexing" : s.status}</span>
                 </td>
                 <td>{s.pages_indexed}</td>
+                <td>
+                  <label className="check nowrap" title="Takes effect when you re-index this bot">
+                    <input
+                      type="checkbox"
+                      checked={pdfs[s.id] ?? s.include_pdfs}
+                      onChange={(e) => setPdfs((p) => ({ ...p, [s.id]: e.target.checked }))}
+                    />
+                    {(pdfs[s.id] ?? s.include_pdfs) ? "On" : "Off"}
+                  </label>
+                </td>
                 <td className="muted small">{timeAgo(s.indexed_at) || "—"}</td>
                 <td className="actions">
-                  <button className="btn ghost small" disabled={s.running} onClick={() => act(() => api.post(`/api/admin/sites/${s.id}/reindex`))}>
+                  <button className="btn ghost small" disabled={s.running} onClick={() => act(() => api.post(`/api/admin/sites/${s.id}/reindex`, { include_pdfs: pdfs[s.id] ?? s.include_pdfs }))}>
                     Re-index
                   </button>
                   <button
