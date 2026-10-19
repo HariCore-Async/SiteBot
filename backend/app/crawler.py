@@ -92,6 +92,12 @@ def canonical(url: str) -> str:
     return urlunparse((p.scheme.lower(), (p.netloc or "").lower(), path, "", query, ""))
 
 
+def dedup_key(url: str) -> str:
+    """The same page reached over http/https or with/without www. counts once."""
+    p = urlparse(url)
+    return f"{host_key(url)}{p.path}?{p.query}"
+
+
 def is_crawlable(url: str, domain: str) -> bool:
     p = urlparse(url)
     if p.scheme not in ("http", "https") or host_key(url) != domain:
@@ -365,9 +371,10 @@ class Crawler:
 
             def enqueue(u: str, depth: int, front: bool = False) -> None:
                 u = canonical(u)
-                if u in self.seen or not is_crawlable(u, self.domain) or not self._allowed(u):
+                key = dedup_key(u)
+                if key in self.seen or not is_crawlable(u, self.domain) or not self._allowed(u):
                     return
-                self.seen.add(u)
+                self.seen.add(key)
                 (frontier.appendleft if front else frontier.append)((u, depth))
 
             enqueue(base, 0)

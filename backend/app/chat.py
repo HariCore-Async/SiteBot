@@ -137,7 +137,7 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str) -> Iterato
         messages = [{"role": "system", "content": system_prompt(site)}]
         for m in history:
             messages.append({"role": m.role, "content": m.content})
-        messages.append({"role": "user", "content": f"CONTEXT:\n{format_context(hits)}\n\nQUESTION: {question}"})
+        messages.append({"role": "user", "content": f"CONTEXT:\n{format_context(hits)}\n\nQUESTION: {search_query}"})
 
         # Hold back the first few characters so a NOT_FOUND reply never flashes on screen.
         answer, buffer, released, usage = "", "", False, {}
