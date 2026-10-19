@@ -3,6 +3,7 @@ import { api } from "./api.js";
 import ThemeToggle from "./ThemeToggle.jsx";
 import { ArrowRightIcon, LogoMark } from "./Icons.jsx";
 import Showcase from "./Showcase.jsx";
+import Support from "./Support.jsx";
 
 // Google Identity Services must be initialised once per page; re-initialising on every render breaks the button.
 let gisClientId = null;
@@ -287,7 +288,7 @@ function CheckMark() {
   );
 }
 
-function Landing({ onStart }) {
+function Landing({ onStart, onSupport }) {
   return (
     <div className="landing">
       <header className="landing-nav">
@@ -295,6 +296,9 @@ function Landing({ onStart }) {
           <LogoMark size={28} /> SiteBot
         </div>
         <div className="landing-nav-actions">
+          <button className="btn ghost small" onClick={onSupport}>
+            Support
+          </button>
           <ThemeToggle />
           <button className="btn ghost small" onClick={() => onStart("signin")}>
             Sign in
@@ -327,6 +331,7 @@ function Landing({ onStart }) {
 
 export default function Login({ config, onLogin }) {
   const [started, setStarted] = useState(false);
+  const [support, setSupport] = useState(false);
   const [mode, setMode] = useState("signin"); // signin | signup | verify
   const [pendingEmail, setPendingEmail] = useState("");
   const [error, setError] = useState("");
@@ -349,6 +354,15 @@ export default function Login({ config, onLogin }) {
     setMode(m);
   };
 
+  if (support)
+    return (
+      <div className="support-wrap">
+        <div className="login-theme">
+          <ThemeToggle />
+        </div>
+        <Support onBack={() => setSupport(false)} backLabel={started ? "Back to sign in" : "Back"} />
+      </div>
+    );
   if (!started)
     return (
       <Landing
@@ -356,6 +370,7 @@ export default function Login({ config, onLogin }) {
           setMode(m);
           setStarted(true);
         }}
+        onSupport={() => setSupport(true)}
       />
     );
 
@@ -444,6 +459,12 @@ export default function Login({ config, onLogin }) {
         {error && <p className="error">{error}</p>}
 
 
+        <p className="fine">
+          Need help?{" "}
+          <button type="button" className="link-btn" onClick={() => setSupport(true)}>
+            Visit support
+          </button>
+        </p>
         {config.require_approval && (
           <p className="fine">Access is by invitation. Your email (or your company's domain) must be approved by an admin.</p>
         )}

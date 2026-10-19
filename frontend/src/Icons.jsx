@@ -120,3 +120,10 @@ export const UserIcon = ({ size = 17 }) => (
     <path d="M4 21a8 8 0 0 1 16 0" />
   </svg>
 );
+
+export const HelpIcon = ({ size = 17 }) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01" />
+  </svg>
+);

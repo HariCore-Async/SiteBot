@@ -1,6 +1,6 @@
 import { useState } from "react";
 import ThemeToggle from "./ThemeToggle.jsx";
-import { HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from "./Icons.jsx";
+import { HelpIcon, HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from "./Icons.jsx";
 import { useConfirm } from "./Confirm.jsx";
 import { money } from "./api.js";
 
@@ -178,6 +178,9 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
       </div>
 
       <div className="sidebar-foot">
+        <button className={`side-link ${view.type === "support" ? "active" : ""}`} onClick={() => go({ type: "support" })}>
+          <HelpIcon /> Help and support
+        </button>
         <UsageBar usage={usage} me={me} />
         <div className="me">
           {me.picture ? <img src={me.picture} alt="" className="avatar" referrerPolicy="no-referrer" /> : <span className="avatar letter">{me.name.charAt(0).toUpperCase()}</span>}
