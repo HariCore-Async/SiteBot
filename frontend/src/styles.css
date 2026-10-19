@@ -1464,6 +1464,86 @@ input[type="search"]::-webkit-search-cancel-button {
   gap: 8px;
 }
 
+/* "Happy chatbotting!" transition */
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: radial-gradient(ellipse 60% 45% at 50% 45%, var(--accent-soft), transparent 70%), var(--bg);
+  cursor: pointer;
+  animation: splash-out 1.3s ease forwards;
+}
+.splash-logo {
+  animation: splash-pop 0.7s cubic-bezier(0.22, 1, 0.36, 1) both, splash-float 1.6s ease-in-out 0.7s infinite;
+}
+.splash-text {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  animation: splash-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both;
+}
+.splash-bar {
+  width: 120px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.splash-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  animation: splash-fill 1.2s ease-in-out forwards;
+}
+@keyframes splash-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6) rotate(-8deg);
+  }
+}
+@keyframes splash-float {
+  50% {
+    transform: translateY(-6px);
+  }
+}
+@keyframes splash-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes splash-fill {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+@keyframes splash-out {
+  0%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-screen,
+  .splash-logo,
+  .splash-text,
+  .splash-bar span {
+    animation: none;
+  }
+}
+
 /* Landing (signed-out first screen) */
 .landing {
   min-height: 100%;

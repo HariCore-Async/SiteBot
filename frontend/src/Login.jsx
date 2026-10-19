@@ -288,6 +288,27 @@ function CheckMark() {
   );
 }
 
+const SPLASH_MS = 1300;
+
+/** Brief "Happy chatbotting!" screen between the landing page and sign-in. Click to skip. */
+function Splash({ onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, SPLASH_MS);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <div className="splash-screen" onClick={onDone} role="status">
+      <div className="splash-logo">
+        <LogoMark size={72} />
+      </div>
+      <p className="splash-text">Happy chatbotting!</p>
+      <div className="splash-bar">
+        <span />
+      </div>
+    </div>
+  );
+}
+
 function Landing({ onStart, onSupport }) {
   return (
     <div className="landing">
@@ -332,6 +353,7 @@ function Landing({ onStart, onSupport }) {
 export default function Login({ config, onLogin }) {
   const [started, setStarted] = useState(false);
   const [support, setSupport] = useState(false);
+  const [splash, setSplash] = useState(false);
   const [mode, setMode] = useState("signin"); // signin | signup | verify
   const [pendingEmail, setPendingEmail] = useState("");
   const [error, setError] = useState("");
@@ -354,6 +376,7 @@ export default function Login({ config, onLogin }) {
     setMode(m);
   };
 
+  if (splash) return <Splash onDone={() => setSplash(false)} />;
   if (support)
     return (
       <div className="support-wrap">
@@ -368,6 +391,7 @@ export default function Login({ config, onLogin }) {
       <Landing
         onStart={(m) => {
           setMode(m);
+          setSplash(true);
           setStarted(true);
         }}
         onSupport={() => setSupport(true)}
