@@ -11,8 +11,6 @@ class Settings(BaseSettings):
     # Comma-separated emails that are always admins.
     admin_emails: str = ""
     google_client_id: str = ""
-    # Local testing only: allows signing in by typing an email. Never enable in production.
-    dev_auth: bool = False
     cookie_secure: bool = False
 
     # Sending one-time codes. Resend (HTTPS API) is used if its key is set, else SMTP; with neither,

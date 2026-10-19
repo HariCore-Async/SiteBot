@@ -51,10 +51,6 @@ class SetUsername(BaseModel):
     username: str = Field(min_length=3, max_length=30)
 
 
-class DevLogin(BaseModel):
-    email: str
-
-
 class AddSite(BaseModel):
     url: str = Field(min_length=3, max_length=2000)
     include_pdfs: bool = False

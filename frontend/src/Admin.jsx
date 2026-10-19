@@ -45,14 +45,16 @@ function Users({ me, onUsageChange }) {
               return (
                 <tr key={u.id}>
                   <td>
-                    <div className="strong">{u.name}</div>
+                    <div className="strong">
+                      {u.name} {u.locked_admin && <span className="pill accent" title="Permanent admin (ADMIN_EMAILS). Can't be demoted or removed.">Owner</span>}
+                    </div>
                     <div className="muted small">{u.email}</div>
                   </td>
                   <td>
                     <select
                       value={u.role}
                       disabled={u.locked_admin}
-                      title={u.locked_admin ? "Set by ADMIN_EMAILS" : ""}
+                      title={u.locked_admin ? "Permanent admin: can't be demoted" : ""}
                       onChange={(e) => update(u, { role: e.target.value })}
                     >
                       <option value="member">Member</option>

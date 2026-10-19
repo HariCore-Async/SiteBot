@@ -1463,21 +1463,6 @@ input[type="search"]::-webkit-search-cancel-button {
   justify-content: space-between;
   gap: 8px;
 }
-.dev-login {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-  padding-top: 14px;
-  border-top: 1px dashed var(--border);
-}
-.dev-row {
-  display: flex;
-  gap: 8px;
-}
-.dev-row input {
-  flex: 1;
-}
 
 /* Landing (signed-out first screen) */
 .landing {

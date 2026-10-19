@@ -331,7 +331,6 @@ export default function Login({ config, onLogin }) {
   const [pendingEmail, setPendingEmail] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [devEmail, setDevEmail] = useState("");
 
   const run = async (fn) => {
     setError("");
@@ -444,21 +443,6 @@ export default function Login({ config, onLogin }) {
 
         {error && <p className="error">{error}</p>}
 
-        {config.dev_auth && mode !== "verify" && mode !== "forgot" && (
-          <form
-            className="dev-login"
-            onSubmit={(e) => {
-              e.preventDefault();
-              run(async () => onLogin(await api.post("/api/auth/dev", { email: devEmail })));
-            }}
-          >
-            <span className="tag">Dev login (local only)</span>
-            <div className="dev-row">
-              <input type="email" required placeholder="you@company.com" value={devEmail} onChange={(e) => setDevEmail(e.target.value)} />
-              <button className="btn ghost">Go</button>
-            </div>
-          </form>
-        )}
 
         {config.require_approval && (
           <p className="fine">Access is by invitation. Your email (or your company's domain) must be approved by an admin.</p>

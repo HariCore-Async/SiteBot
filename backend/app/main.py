@@ -20,7 +20,7 @@ from .ingest import is_running, start_ingestion
 from .models import AccessGrant, Chat, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
-    AddSite, AdminSettingsIn, Ask, BudgetIn, ChangePassword, ForgotPassword, ReindexIn, ResetPassword, SetUsername, DevLogin, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, AdminSettingsIn, Ask, BudgetIn, ChangePassword, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     VerifyCode, site_out, user_out,
 )
 from .usage import global_budget, set_global_budget, usage_summary
@@ -45,7 +45,6 @@ app = FastAPI(title="SiteBot", lifespan=lifespan)
 def public_config(db: Session = Depends(get_db)):
     return {
         "google_client_id": settings.google_client_id,
-        "dev_auth": settings.dev_auth,
         "require_approval": auth.approval_required(db),
     }
 
@@ -182,13 +181,6 @@ def set_username(body: SetUsername, user: User = Depends(current_user), db: Sess
     user.username = username
     db.commit()
     return user_out(user)
-
-
-@app.post("/api/auth/dev")
-def dev_login(body: DevLogin, response: Response, db: Session = Depends(get_db)):
-    if not settings.dev_auth:
-        raise HTTPException(404)
-    return user_out(login_user(db, response, body.email))
 
 
 @app.post("/api/auth/logout")
@@ -431,7 +423,7 @@ def admin_update_user(user_id: int, body: UserUpdate, me: User = Depends(admin_u
         u.limit_usd = body.limit_usd
     if body.role is not None:
         if body.role == "member" and u.email in settings.admin_email_set:
-            raise HTTPException(400, "This admin is set by ADMIN_EMAILS and can't be demoted here.")
+            raise HTTPException(400, "This is a permanent admin and can't be demoted.")
         u.role = body.role
     db.commit()
     return user_out(u)

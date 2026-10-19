@@ -27,7 +27,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    api.get("/api/config").then(setConfig).catch(() => setConfig({ google_client_id: "", dev_auth: false }));
+    api.get("/api/config").then(setConfig).catch(() => setConfig({ google_client_id: "" }));
     api
       .get("/api/me")
       .then((m) => {
