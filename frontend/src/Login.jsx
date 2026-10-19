@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
 import ThemeToggle from "./ThemeToggle.jsx";
-import { LogoMark } from "./Icons.jsx";
+import { ArrowRightIcon, LogoMark } from "./Icons.jsx";
 
 function GoogleButton({ clientId, onCredential }) {
   const ref = useRef(null);
@@ -165,7 +165,45 @@ function VerifyEmail({ email, onLogin, onBack, busy, run }) {
   );
 }
 
+const FEATURES = [
+  {
+    title: "Any website, one link",
+    text: "Paste a link and SiteBot reads the site's public pages, and optionally its PDFs, to build a chatbot for it.",
+  },
+  {
+    title: "Answers you can trust",
+    text: "Every answer comes only from the site's own content, with links to its sources. If the site doesn't say, the bot says so.",
+  },
+  {
+    title: "Two chats side by side",
+    text: "Compare two websites at once, and pick up any conversation right where you left it.",
+  },
+  {
+    title: "Private by invitation",
+    text: "Only approved people and company domains can sign in, with per-user spending limits.",
+  },
+];
+
+function Landing({ onStart }) {
+  return (
+    <div className="landing">
+      <div className="login-theme">
+        <ThemeToggle />
+      </div>
+      <div className="landing-inner">
+        <LogoMark size={64} />
+        <h1>SiteBot</h1>
+        <p>Turn any website into a chatbot that answers only from what the site says.</p>
+        <button className="btn primary landing-cta" onClick={onStart} autoFocus>
+          Get started <ArrowRightIcon />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Login({ config, onLogin }) {
+  const [started, setStarted] = useState(false);
   const [mode, setMode] = useState("signin"); // signin | signup | verify
   const [pendingEmail, setPendingEmail] = useState("");
   const [error, setError] = useState("");
@@ -189,11 +227,32 @@ export default function Login({ config, onLogin }) {
     setMode(m);
   };
 
+  if (!started) return <Landing onStart={() => setStarted(true)} />;
+
   return (
-    <div className="login">
+    <div className="login split">
       <div className="login-theme">
         <ThemeToggle />
       </div>
+      <section className="login-info">
+        <div className="info-brand">
+          <LogoMark size={30} /> SiteBot
+        </div>
+        <h2>Chat with any website.</h2>
+        <p className="info-lead">Give SiteBot a link. It learns the site and answers your questions from it, with sources.</p>
+        <ul className="features">
+          {FEATURES.map((f, i) => (
+            <li key={f.title}>
+              <span className="feature-n">{i + 1}</span>
+              <div>
+                <strong>{f.title}</strong>
+                <p>{f.text}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section className="login-side">
       <div className="login-card">
         <div className="login-brand">
           <LogoMark size={40} />
@@ -260,6 +319,7 @@ export default function Login({ config, onLogin }) {
 
         <p className="fine">Access is by invitation. Your email (or your company's domain) must be approved by an admin.</p>
       </div>
+      </section>
     </div>
   );
 }

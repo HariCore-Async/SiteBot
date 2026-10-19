@@ -1349,6 +1349,122 @@ input[type="search"]::-webkit-search-cancel-button {
   flex: 1;
 }
 
+/* Landing (signed-out first screen) */
+.landing {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 40px 20px;
+  background: radial-gradient(ellipse at 50% 35%, var(--accent-soft), transparent 60%), var(--bg);
+}
+.landing-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  max-width: 520px;
+  animation: pop-in 0.3s ease-out;
+}
+.landing-inner h1 {
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  margin-top: 10px;
+}
+.landing-inner p {
+  margin: 0 0 14px;
+  font-size: 17px;
+  color: var(--muted);
+}
+.btn.landing-cta {
+  height: 46px;
+  padding: 0 22px;
+  font-size: 15px;
+  border-radius: 12px;
+}
+
+/* Split login: what SiteBot does on the left, sign-in on the right */
+.login.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  place-items: stretch;
+  padding: 0;
+  background: var(--bg);
+}
+.login-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  padding: 56px clamp(32px, 6vw, 88px);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+.info-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 650;
+  font-size: 16px;
+}
+.login-info h2 {
+  font-size: clamp(28px, 3.2vw, 40px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-top: 18px;
+}
+.info-lead {
+  margin: 0;
+  font-size: 16px;
+  color: var(--muted);
+  max-width: 460px;
+}
+.features {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 480px;
+}
+.features li {
+  display: flex;
+  gap: 14px;
+}
+.feature-n {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.features strong {
+  font-size: 14.5px;
+}
+.features p {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.login-side {
+  display: grid;
+  place-items: center;
+  padding: 48px 24px;
+}
+.login.split .login-card {
+  box-shadow: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
 /* ---------- Admin ---------- */
 .admin h1 {
   font-size: 26px;
@@ -1533,6 +1649,21 @@ td select {
   }
   .msg.user .bubble {
     max-width: 88%;
+  }
+  .login.split {
+    grid-template-columns: 1fr;
+  }
+  .login-info {
+    order: 2;
+    padding: 36px 24px 48px;
+    border-right: 0;
+    border-top: 1px solid var(--border);
+  }
+  .login-side {
+    padding: 64px 20px 40px;
+  }
+  .landing-inner h1 {
+    font-size: 36px;
   }
   .panes.count-2 {
     flex-direction: column;
