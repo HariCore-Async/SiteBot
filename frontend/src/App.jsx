@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar.jsx";
 import AddSite from "./AddSite.jsx";
 import ChatView from "./ChatView.jsx";
 import Admin from "./Admin.jsx";
+import Dashboard from "./Dashboard.jsx";
 import { applyInitialTheme } from "./ThemeToggle.jsx";
 
 applyInitialTheme();
@@ -16,7 +17,7 @@ export default function App() {
   const [chats, setChats] = useState([]);
   const [usage, setUsage] = useState(null);
   // view: {type: "add"} | {type: "progress", siteId} | {type: "chat", siteId, chatId} | {type: "admin"}
-  const [view, setView] = useState({ type: "add" });
+  const [view, setView] = useState({ type: "home" });
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -63,7 +64,7 @@ export default function App() {
     setMe(null);
     setChats([]);
     setSites([]);
-    setView({ type: "add" });
+    setView({ type: "home" });
   };
 
   const go = (v) => {
@@ -107,12 +108,24 @@ export default function App() {
         }}
       />
     );
-  } else {
+  } else if (view.type === "add") {
     main = (
       <AddSite
         sites={sites}
         refreshSites={refreshSites}
         onOpen={(siteId) => go({ type: "progress", siteId })}
+        onChat={(siteId) => go({ type: "chat", siteId, chatId: null })}
+      />
+    );
+  } else {
+    const usedSites = new Set(chats.map((c) => c.site_id));
+    const myBots = sites.filter((s) => s.ready && (s.created_by === me.id || usedSites.has(s.id)));
+    main = (
+      <Dashboard
+        me={me}
+        myBots={myBots}
+        libraryCount={sites.filter((s) => s.ready).length - myBots.length}
+        onCreate={() => go({ type: "add" })}
         onChat={(siteId) => go({ type: "chat", siteId, chatId: null })}
       />
     );

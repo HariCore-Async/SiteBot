@@ -55,11 +55,18 @@ function UsageBar({ usage }) {
 const STATUS_LABEL = { queued: "Queued", crawling: "Reading", embedding: "Learning", failed: "Failed" };
 
 export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
+  const [query, setQuery] = useState("");
   const chatsBySite = {};
   for (const c of chats) (chatsBySite[c.site_id] ||= []).push(c);
 
-  // Bots you've chatted with first, then everything else that's shared.
-  const ordered = [...sites].sort((a, b) => {
+  // The sidebar shows your bots (ones you added or chatted with); the rest of the library is found by searching.
+  const q = query.trim().toLowerCase();
+  const mine = sites.filter((s) => s.created_by === me.id || chatsBySite[s.id]);
+  const shown = q ? sites.filter((s) => s.ready && `${s.name} ${s.domain}`.toLowerCase().includes(q)) : mine;
+  const moreInLibrary = sites.filter((s) => s.ready).length - mine.filter((s) => s.ready).length;
+
+  // Most recently used first.
+  const ordered = [...shown].sort((a, b) => {
     const ca = chatsBySite[a.id]?.[0]?.updated_at || "";
     const cb = chatsBySite[b.id]?.[0]?.updated_at || "";
     return cb.localeCompare(ca) || a.name.localeCompare(b.name);
@@ -68,17 +75,23 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
-        <div className="brand">
+        <div className="brand" role="button" tabIndex={0} onClick={() => go({ type: "home" })} title="Home">
           <span className="logo-mark small">💬</span> SiteBot
         </div>
         <ThemeToggle />
       </div>
       <button className="btn primary block" onClick={() => go({ type: "add" })}>
-        + Add a website
+        + New chatbot
       </button>
 
+      <div className="bot-search">
+        <input type="search" placeholder="Search chatbots" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search chatbots" />
+      </div>
+
       <div className="bot-list">
-        {ordered.length === 0 && <p className="muted small pad">No bots yet. Add a website to create one.</p>}
+        {!q && ordered.length > 0 && <div className="list-label">Your chatbots</div>}
+        {q && ordered.length === 0 && <p className="muted small pad">No chatbots match "{query.trim()}". Create one from its website link.</p>}
+        {!q && ordered.length === 0 && <p className="muted small pad">You haven't used any chatbots yet. Create one, or search the library.</p>}
         {ordered.map((s) => {
           const siteChats = chatsBySite[s.id] || [];
           const busy = !s.ready && s.status !== "failed";
@@ -87,6 +100,7 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
               <div
                 className={`bot-row ${view.siteId === s.id && view.type !== "admin" ? "active" : ""}`}
                 onClick={() => {
+                  setQuery("");
                   if (!s.ready) return go({ type: "progress", siteId: s.id });
                   go({ type: "chat", siteId: s.id, chatId: siteChats[0]?.id ?? null });
                 }}
@@ -105,6 +119,8 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
           );
         })}
       </div>
+
+      {!q && moreInLibrary > 0 && <p className="library-note">{moreInLibrary} more in the library. Search to find one.</p>}
 
       <div className="sidebar-foot">
         <UsageBar usage={usage} />

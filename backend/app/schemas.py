@@ -71,6 +71,7 @@ def site_out(s: Site) -> dict:
         "running": is_running(s.id),
         "message": s.message,
         "include_pdfs": s.include_pdfs,
+        "created_by": s.created_by,
         "ready": s.generation > 0,
         "pages_found": s.pages_found,
         "pages_done": s.pages_done,

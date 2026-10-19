@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, timeAgo } from "./api.js";
+import { api } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
 
 function progressOf(s) {
@@ -115,7 +115,7 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
   return (
     <div className="page">
       <div className="hero">
-        <h1>Chat with any website</h1>
+        <h1>Create a chatbot</h1>
         <p className="muted">
           Paste a link. SiteBot reads the public pages of that site and answers questions using only what it finds there, with sources.
         </p>
@@ -142,22 +142,10 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
       </div>
 
       {ready.length > 0 && (
-        <>
-          <h3 className="section-title">Available chatbots</h3>
-          <div className="bot-grid">
-            {ready.map((s) => (
-              <button key={s.id} className="bot-card" onClick={() => onChat(s.id)}>
-                <BotIcon site={s} size={36} />
-                <div>
-                  <div className="bot-name">{s.name} Chatbot</div>
-                  <div className="muted small">
-                    {s.domain} · {s.pages_indexed} pages · {timeAgo(s.indexed_at)}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </>
+        <p className="library-hint">
+          📚 {ready.length} chatbot{ready.length === 1 ? " is" : "s are"} already in the library. If the site you paste is one of them,
+          we'll open it right away instead of indexing it again.
+        </p>
       )}
     </div>
   );
