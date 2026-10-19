@@ -6,6 +6,7 @@ import { api, streamAnswer, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
 import { CloseIcon, RefreshIcon, SendIcon } from "./Icons.jsx";
 import BotInfo from "./BotInfo.jsx";
+import ReadAllBanner from "./ReadAll.jsx";
 
 /** Turns [n] markers into links to the cited page so they render as citation pills. */
 function linkCitations(text, sources) {
@@ -58,7 +59,7 @@ const mdComponents = {
     ),
 };
 
-export default function ChatView({ site, chatId, onChatCreated, onAnswered, onClose }) {
+export default function ChatView({ site, chatId, onChatCreated, onAnswered, onClose, onSiteChanged }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -167,6 +168,7 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered, onCl
         )}
       </header>
 
+      <ReadAllBanner site={site} onStarted={onSiteChanged} />
       <div className="messages" ref={scrollRef}>
         {messages.length === 0 && (
           <div className="empty">

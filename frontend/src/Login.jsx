@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
 import ThemeToggle from "./ThemeToggle.jsx";
 import { ArrowRightIcon, LogoMark } from "./Icons.jsx";
+import Showcase from "./Showcase.jsx";
 
 function GoogleButton({ clientId, onCredential }) {
   const ref = useRef(null);
@@ -220,37 +221,7 @@ function Landing({ onStart }) {
           </button>
         </div>
 
-        <div className="preview" aria-hidden="true">
-          <div className="preview-bar">
-            <span />
-            <span />
-            <span />
-          </div>
-          <div className="preview-body">
-            <div className="preview-q">What does the Pro plan include?</div>
-            <div className="preview-a">
-              <span className="preview-avatar">
-                <LogoMark size={22} />
-              </span>
-              <div>
-                <p>
-                  The Pro plan includes unlimited e-signatures, contract templates and priority support <span className="cite">1</span>.
-                  Teams can add members at any time <span className="cite">2</span>.
-                </p>
-                <div className="sources">
-                  <span className="source-chip">
-                    <span className="source-n">1</span>
-                    <span className="source-title">Pricing</span>
-                  </span>
-                  <span className="source-chip">
-                    <span className="source-n">2</span>
-                    <span className="source-title">Teams and billing</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <Showcase />
       </main>
     </div>
   );

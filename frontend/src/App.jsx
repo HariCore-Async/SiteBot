@@ -171,6 +171,7 @@ export default function App() {
                 refreshChats();
               }}
               onClose={() => closePane(id)}
+              onSiteChanged={refreshSites}
             />
           </div>
         ))}

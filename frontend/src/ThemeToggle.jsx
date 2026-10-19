@@ -7,7 +7,7 @@ function initialTheme() {
   } catch {
     /* storage unavailable */
   }
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  return "dark";
 }
 
 export function applyInitialTheme() {

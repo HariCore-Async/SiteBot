@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { api } from "./api.js";
+import { useConfirm } from "./Confirm.jsx";
+import ReadAllBanner from "./ReadAll.jsx";
 import { BotIcon } from "./Sidebar.jsx";
 
 function progressOf(s) {
@@ -9,7 +11,7 @@ function progressOf(s) {
   return 2;
 }
 
-function Progress({ site, onChat, onRetry }) {
+function Progress({ site, onChat, onRetry, onSiteChanged }) {
   const pct = Math.round(progressOf(site));
   const failed = site.status === "failed";
   const done = site.ready && !site.running;
@@ -59,6 +61,7 @@ function Progress({ site, onChat, onRetry }) {
           </span>
         )}
       </div>
+      {done && <ReadAllBanner site={site} onStarted={onSiteChanged} />}
       {done && (
         <button className="btn primary" onClick={() => onChat(site.id)}>
           Start chatting →
@@ -81,13 +84,32 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const submit = async (e, retryUrl) => {
+  const [confirmAsk, confirmDialog] = useConfirm();
+
+  const submit = async (e, retryUrl, confirmLarge = false) => {
     e?.preventDefault();
     setError("");
     setNotice("");
     setBusy(true);
+    if (!confirmLarge) setNotice("Checking the size of the website…");
     try {
-      const { site: s, existing } = await api.post("/api/sites", { url: retryUrl || url, include_pdfs: includePdfs });
+      const res = await api.post("/api/sites", { url: retryUrl || url, include_pdfs: includePdfs, confirm_large: confirmLarge });
+      if (res.needs_confirm) {
+        setNotice("");
+        setBusy(false);
+        const count = res.estimated_pages.toLocaleString();
+        const ok = await confirmAsk({
+          title: "This is a large website",
+          message:
+            `It has ${res.exact ? "about" : "at least"} ${count} pages, so reading all of it will take roughly ` +
+            `${res.estimated_minutes} minute${res.estimated_minutes === 1 ? "" : "s"}. You can leave while it works.` +
+            (res.capped ? ` For safety, indexing stops at ${res.max_pages.toLocaleString()} pages.` : ""),
+          confirmLabel: "Proceed",
+        });
+        if (ok) return submit(null, retryUrl || url, true);
+        return;
+      }
+      const { site: s, existing } = res;
       await refreshSites();
       if (existing && s.ready) {
         setNotice(`${s.name} is already indexed — opening its chatbot.`);
@@ -106,7 +128,8 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
   if (site) {
     return (
       <div className="page center">
-        <Progress site={site} onChat={onChat} onRetry={() => submit(null, site.root_url)} />
+        <Progress site={site} onChat={onChat} onRetry={() => submit(null, site.root_url, true)} onSiteChanged={refreshSites} />
+        {confirmDialog}
       </div>
     );
   }
@@ -137,7 +160,7 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
         {error && <p className="error">{error}</p>}
         {notice && <p className="notice">{notice}</p>}
       </div>
-
+      {confirmDialog}
     </div>
   );
 }
