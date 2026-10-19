@@ -165,39 +165,93 @@ function VerifyEmail({ email, onLogin, onBack, busy, run }) {
   );
 }
 
-const FEATURES = [
+const VALUES = [
   {
-    title: "Any website, one link",
-    text: "Paste a link and SiteBot reads the site's public pages, and optionally its PDFs, to build a chatbot for it.",
+    title: "Grounded in the source",
+    text: "Every answer is drawn from the website's own pages and cited, so it can be checked in one click.",
   },
   {
-    title: "Answers you can trust",
-    text: "Every answer comes only from the site's own content, with links to its sources. If the site doesn't say, the bot says so.",
+    title: "Honest about its limits",
+    text: "When a site doesn't cover something, SiteBot says so rather than guessing.",
   },
   {
-    title: "Two chats side by side",
-    text: "Compare two websites at once, and pick up any conversation right where you left it.",
-  },
-  {
-    title: "Private by invitation",
-    text: "Only approved people and company domains can sign in, with per-user spending limits.",
+    title: "Built for teams",
+    text: "Invite-only access, per-user budgets and side-by-side chats for comparing sites.",
   },
 ];
+
+function CheckMark() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m5 12.5 4.5 4.5L19 7.5" />
+    </svg>
+  );
+}
 
 function Landing({ onStart }) {
   return (
     <div className="landing">
-      <div className="login-theme">
-        <ThemeToggle />
-      </div>
-      <div className="landing-inner">
-        <LogoMark size={64} />
-        <h1>SiteBot</h1>
-        <p>Turn any website into a chatbot that answers only from what the site says.</p>
-        <button className="btn primary landing-cta" onClick={onStart} autoFocus>
-          Get started <ArrowRightIcon />
-        </button>
-      </div>
+      <header className="landing-nav">
+        <div className="info-brand">
+          <LogoMark size={28} /> SiteBot
+        </div>
+        <div className="landing-nav-actions">
+          <ThemeToggle />
+          <button className="btn ghost small" onClick={() => onStart("signin")}>
+            Sign in
+          </button>
+        </div>
+      </header>
+
+      <main className="landing-hero">
+        <span className="eyebrow">Grounded answers, with sources</span>
+        <h1>
+          Every website,
+          <br />
+          now a conversation.
+        </h1>
+        <p>SiteBot reads a website and answers questions about it, using only what the site says.</p>
+        <div className="landing-actions">
+          <button className="btn primary landing-cta" onClick={() => onStart("signup")} autoFocus>
+            Get started <ArrowRightIcon />
+          </button>
+          <button className="btn landing-cta secondary" onClick={() => onStart("signin")}>
+            Sign in
+          </button>
+        </div>
+
+        <div className="preview" aria-hidden="true">
+          <div className="preview-bar">
+            <span />
+            <span />
+            <span />
+          </div>
+          <div className="preview-body">
+            <div className="preview-q">What does the Pro plan include?</div>
+            <div className="preview-a">
+              <span className="preview-avatar">
+                <LogoMark size={22} />
+              </span>
+              <div>
+                <p>
+                  The Pro plan includes unlimited e-signatures, contract templates and priority support <span className="cite">1</span>.
+                  Teams can add members at any time <span className="cite">2</span>.
+                </p>
+                <div className="sources">
+                  <span className="source-chip">
+                    <span className="source-n">1</span>
+                    <span className="source-title">Pricing</span>
+                  </span>
+                  <span className="source-chip">
+                    <span className="source-n">2</span>
+                    <span className="source-title">Teams and billing</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
@@ -227,7 +281,15 @@ export default function Login({ config, onLogin }) {
     setMode(m);
   };
 
-  if (!started) return <Landing onStart={() => setStarted(true)} />;
+  if (!started)
+    return (
+      <Landing
+        onStart={(m) => {
+          setMode(m);
+          setStarted(true);
+        }}
+      />
+    );
 
   return (
     <div className="login split">
@@ -235,18 +297,22 @@ export default function Login({ config, onLogin }) {
         <ThemeToggle />
       </div>
       <section className="login-info">
-        <div className="info-brand">
+        <button className="info-brand plain" onClick={() => setStarted(false)} title="Back to the start page">
           <LogoMark size={30} /> SiteBot
-        </div>
-        <h2>Chat with any website.</h2>
-        <p className="info-lead">Give SiteBot a link. It learns the site and answers your questions from it, with sources.</p>
-        <ul className="features">
-          {FEATURES.map((f, i) => (
-            <li key={f.title}>
-              <span className="feature-n">{i + 1}</span>
+        </button>
+        <h2>Answers straight from the source.</h2>
+        <p className="info-lead">
+          SiteBot turns any website into an assistant that answers from that site alone, and shows where every answer came from.
+        </p>
+        <ul className="values">
+          {VALUES.map((v) => (
+            <li key={v.title}>
+              <span className="value-check">
+                <CheckMark />
+              </span>
               <div>
-                <strong>{f.title}</strong>
-                <p>{f.text}</p>
+                <strong>{v.title}</strong>
+                <p>{v.text}</p>
               </div>
             </li>
           ))}

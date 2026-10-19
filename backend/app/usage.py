@@ -28,17 +28,34 @@ def total_spent(db: Session) -> float:
 
 
 def usage_summary(db: Session, user: User) -> dict:
-    return {
-        "user_spent": round(user_spent(db, user.id), 6),
-        "user_limit": user.limit_usd,
-        "global_spent": round(total_spent(db), 6),
-        "global_budget": global_budget(db),
-    }
+    """What the usage meter shows. Members see only their own spend; admins also see the overall budget and every user."""
+    summary = {"user_spent": round(user_spent(db, user.id), 6), "user_limit": user.limit_usd}
+    if user.role != "admin":
+        return summary
+    spent = dict(db.execute(select(UsageEvent.user_id, func.sum(UsageEvent.cost_usd)).group_by(UsageEvent.user_id)).all())
+    users = db.scalars(select(User).order_by(User.created_at)).all()
+    summary.update(
+        global_spent=round(total_spent(db), 6),
+        global_budget=global_budget(db),
+        users=sorted(
+            (
+                {"id": u.id, "name": u.name or u.email, "spent": round(float(spent.get(u.id) or 0), 6), "limit": u.limit_usd}
+                for u in users
+            ),
+            key=lambda r: (r["id"] != user.id, -r["spent"]),
+        ),
+    )
+    return summary
 
 
 def check_budget(db: Session, user: User) -> str | None:
     """Returns a reason string when the user may not make another LLM call."""
-    s = usage_summary(db, user)
+    s = {
+        "user_spent": user_spent(db, user.id),
+        "user_limit": user.limit_usd,
+        "global_spent": total_spent(db),
+        "global_budget": global_budget(db),
+    }
     if s["global_spent"] >= s["global_budget"]:
         return "The app's overall budget has been used up. Ask an admin to raise it."
     if s["user_spent"] >= s["user_limit"]:

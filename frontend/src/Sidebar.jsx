@@ -16,11 +16,13 @@ export function BotIcon({ site, size = 28 }) {
   );
 }
 
-function UsageBar({ usage }) {
+const levelOf = (pct) => (pct >= 90 ? "danger" : pct >= 70 ? "warn" : "");
+const pctOf = (spent, limit) => (limit > 0 ? Math.min(100, (spent / limit) * 100) : 100);
+
+function UsageBar({ usage, me }) {
   if (!usage) return null;
-  const pct = usage.user_limit > 0 ? Math.min(100, (usage.user_spent / usage.user_limit) * 100) : 100;
-  const gpct = usage.global_budget > 0 ? Math.min(100, (usage.global_spent / usage.global_budget) * 100) : 100;
-  const level = pct >= 90 ? "danger" : pct >= 70 ? "warn" : "";
+  const pct = pctOf(usage.user_spent, usage.user_limit);
+  const isAdmin = Array.isArray(usage.users);
   return (
     <div className="usage" tabIndex={0} aria-label="Credits used">
       <div className="usage-label">
@@ -28,27 +30,55 @@ function UsageBar({ usage }) {
         <span>{Math.round(pct)}%</span>
       </div>
       <div className="bar">
-        <div className={`bar-fill ${level}`} style={{ width: `${pct}%` }} />
+        <div className={`bar-fill ${levelOf(pct)}`} style={{ width: `${pct}%` }} />
       </div>
-      <div className="usage-tip" role="tooltip">
-        <div className="tip-row">
-          <span>You</span>
-          <strong>
-            {money(usage.user_spent)} / {money(usage.user_limit)}
-          </strong>
-        </div>
-        <div className="bar small">
-          <div className={`bar-fill ${level}`} style={{ width: `${pct}%` }} />
-        </div>
-        <div className="tip-row">
-          <span>All users</span>
-          <strong>
-            {money(usage.global_spent)} / {money(usage.global_budget)}
-          </strong>
-        </div>
-        <div className="bar small">
-          <div className={`bar-fill ${gpct >= 90 ? "danger" : gpct >= 70 ? "warn" : ""}`} style={{ width: `${gpct}%` }} />
-        </div>
+      <div className={`usage-tip ${isAdmin ? "wide" : ""}`} role="tooltip">
+        {isAdmin ? (
+          <>
+            <div className="tip-head">
+              <span>All users</span>
+              <strong>
+                {money(usage.global_spent)} / {money(usage.global_budget)}
+              </strong>
+            </div>
+            <div className="bar small">
+              <div
+                className={`bar-fill ${levelOf(pctOf(usage.global_spent, usage.global_budget))}`}
+                style={{ width: `${pctOf(usage.global_spent, usage.global_budget)}%` }}
+              />
+            </div>
+            <div className="tip-list">
+              {usage.users.map((u) => {
+                const up = pctOf(u.spent, u.limit);
+                return (
+                  <div key={u.id} className="tip-user">
+                    <div className="tip-row">
+                      <span className="tip-name">{u.id === me.id ? `${u.name} (you)` : u.name}</span>
+                      <strong>
+                        {money(u.spent)} / {money(u.limit)}
+                      </strong>
+                    </div>
+                    <div className="bar small">
+                      <div className={`bar-fill ${levelOf(up)}`} style={{ width: `${up}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="tip-row">
+              <span>Your usage</span>
+              <strong>
+                {money(usage.user_spent)} / {money(usage.user_limit)}
+              </strong>
+            </div>
+            <div className="bar small">
+              <div className={`bar-fill ${levelOf(pct)}`} style={{ width: `${pct}%` }} />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -148,7 +178,7 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
       </div>
 
       <div className="sidebar-foot">
-        <UsageBar usage={usage} />
+        <UsageBar usage={usage} me={me} />
         <div className="me">
           {me.picture ? <img src={me.picture} alt="" className="avatar" referrerPolicy="no-referrer" /> : <span className="avatar letter">{me.name.charAt(0).toUpperCase()}</span>}
           <div className="me-meta">
