@@ -79,28 +79,79 @@ def rewrite_question(db: Session, user: User, history: list[Message], question: 
         return question
 
 
-def verify_answer(db: Session, user: User, hits: list[Hit], answer: str) -> bool:
-    try:
+# Split after a lowercase letter, digit or bracket only (not common abbreviations), so "U.S." or "St. Louis" stay whole.
+SENTENCE_SPLIT = re.compile(r"(?<=[a-z0-9)\]%])(?<!\bSt)(?<!\bNo)(?<!\bDr)(?<!\bMr)(?<!\bMs)(?<!\bMrs)(?<!\bJr)(?<!\bSr)(?<!\bvs)(?<!\bInc)(?<!\betc)(?<!\bAve)(?<!\bCo)(?<!\bLtd)[.!?](?:\s*\[\d+\])*\s+(?=[A-Z*\"(])")
+
+
+def split_sentences(answer: str) -> list[tuple[int, str]]:
+    """(line number, sentence) pairs, so the answer can be rebuilt with its Markdown lines intact."""
+    units = []
+    for i, line in enumerate(answer.split("\n")):
+        if not line.strip():
+            continue
+        start = 0
+        for m in SENTENCE_SPLIT.finditer(line):
+            units.append((i, line[start:m.start() + len(m.group(0).rstrip())].strip()))
+            start = m.end()
+        units.append((i, line[start:].strip()))
+    return [u for u in units if u[1]]
+
+
+def verify_answer(db: Session, user: User, hits: list[Hit], answer: str) -> str | None:
+    """Removes sentences that state facts the excerpts don't. Returns the checked answer, or None if nothing is left."""
+    units = split_sentences(answer)
+    numbered = "\n".join(f"S{k}: {text}" for k, (_, text) in enumerate(units, 1))
+
+    def flag_once() -> set[int]:
         text, usage = llm.complete(
             settings.openrouter_fast_model,
             [
                 {
                     "role": "system",
-                    "content": "You check answers for hallucinations. The ANSWER is written by the company's own assistant, so "
-                    "\"we\", \"us\" and \"our\" refer to the company whose website the CONTEXT comes from. Reply with exactly "
-                    "one word: SUPPORTED if every factual claim in the ANSWER is directly stated in the CONTEXT, otherwise UNSUPPORTED.",
+                    "content": "You check an assistant's answer for made-up facts. The answer is written by the company's own "
+                    "assistant, so \"we\", \"us\" and \"our\" refer to the company whose website the CONTEXT comes from, and "
+                    "its [n] markers refer to the numbered CONTEXT excerpts. List every sentence (S1, S2, ...) that states a "
+                    "specific fact (a name, number, price, date, place, policy, feature or instruction) that the CONTEXT does not "
+                    "state. Rephrasing, summarising and friendly framing are fine. Reply with the sentence labels separated by "
+                    "commas, or NONE if every sentence is supported. Reply with nothing else.",
                 },
-                {"role": "user", "content": f"CONTEXT:\n{format_context(hits)}\n\nANSWER:\n{answer}"},
+                {"role": "user", "content": f"CONTEXT:\n{format_context(hits)}\n\nANSWER SENTENCES:\n{numbered}"},
             ],
-            max_tokens=10,
+            max_tokens=60,
         )
         record_usage(db, user.id, "verify", settings.openrouter_fast_model, usage)
-        # Match the prefix: a tight token limit can cut the word short ("UNSUP").
-        return "UNSUP" not in text.upper()
+        return {int(n) for n in re.findall(r"S(\d+)", text.upper())}
+
+    try:
+        flagged = flag_once()
+        # The checker is noisy on long, list-style answers. Only drop sentences it flags twice in a row;
+        # a genuinely made-up fact gets flagged both times.
+        if flagged:
+            flagged &= flag_once()
     except llm.LLMError as e:
         # Fail open on verifier outages: the answer already passed the citation check.
         log.warning("Verification failed: %s", e)
-        return True
+        return answer
+    if not flagged:
+        return answer
+    if flagged >= set(range(1, len(units) + 1)):
+        return None
+    lines: dict[int, list[str]] = {}
+    for k, (line_no, sentence) in enumerate(units, 1):
+        if k not in flagged:
+            lines.setdefault(line_no, []).append(sentence)
+    original = answer.split("\n")
+    kept = []
+    for i, line in enumerate(original):
+        if i in lines:
+            prefix = re.match(r"^\s*(?:[-*]|\d+\.)\s+", line)
+            body = " ".join(lines[i])
+            kept.append(body if (prefix and body.startswith(prefix.group(0).strip())) or not prefix else prefix.group(0) + body.lstrip("-* "))
+        elif not line.strip() and kept and kept[-1].strip():
+            kept.append("")
+    result = "\n".join(kept).strip()
+    # What's left must still be grounded: a heading-only remnant ("Here are the categories:") isn't an answer.
+    return result if re.search(r"\[\d+\]", result) else None
 
 
 def answer_stream(db: Session, user: User, chat: Chat, question: str) -> Iterator[str]:
@@ -192,11 +243,16 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str) -> Iterato
         # Drop citation markers that point at excerpts the model was never given.
         cleaned = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if 1 <= int(m.group(1)) <= len(hits) else "", answer)
 
-        if settings.verify_answers and not verify_answer(db, user, [hits[n - 1] for n in cited], cleaned):
-            text = not_found_text(site)
-            yield event("replace", text=text)
-            yield from finish(text, [], False)
-            return
+        if settings.verify_answers:
+            checked = verify_answer(db, user, hits, cleaned)
+            if checked is None:
+                text = not_found_text(site)
+                yield event("replace", text=text)
+                yield from finish(text, [], False)
+                return
+            if checked != cleaned:
+                cleaned = checked
+                cited = sorted({int(n) for n in re.findall(r"\[(\d+)\]", cleaned) if 1 <= int(n) <= len(hits)})
 
         if cleaned != answer or not released:
             yield event("replace", text=cleaned)
