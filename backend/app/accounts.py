@@ -101,7 +101,7 @@ def deliver_code(email: str, code: str) -> None:
     subject = f"{code} is your SiteBot verification code"
     body = (
         f"Your SiteBot verification code is {code}.\n\n"
-        f"It expires in {CODE_MINUTES} minutes. If you didn't try to sign in, you can ignore this email."
+        f"It expires in {CODE_MINUTES} minutes. If you didn't ask for it, you can ignore this email."
     )
     try:
         if settings.resend_api_key:

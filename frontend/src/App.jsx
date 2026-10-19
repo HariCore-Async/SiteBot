@@ -6,6 +6,7 @@ import AddSite from "./AddSite.jsx";
 import ChatView from "./ChatView.jsx";
 import Admin from "./Admin.jsx";
 import Dashboard from "./Dashboard.jsx";
+import Settings from "./Settings.jsx";
 import { MenuIcon } from "./Icons.jsx";
 import { applyInitialTheme } from "./ThemeToggle.jsx";
 
@@ -130,7 +131,9 @@ export default function App() {
   if (!me) return <Login config={config} onLogin={onLogin} />;
 
   let main;
-  if (view.type === "admin" && me.role === "admin") {
+  if (view.type === "settings") {
+    main = <Settings me={me} onUpdated={(u) => setMe((m) => ({ ...m, ...u }))} />;
+  } else if (view.type === "admin" && me.role === "admin") {
     main = <Admin me={me} sites={sites} refreshSites={refreshSites} onUsageChange={refreshUsage} />;
   } else if (view.type === "progress" && siteById[view.siteId]) {
     main = (

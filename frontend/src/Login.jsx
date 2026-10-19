@@ -4,15 +4,23 @@ import ThemeToggle from "./ThemeToggle.jsx";
 import { ArrowRightIcon, LogoMark } from "./Icons.jsx";
 import Showcase from "./Showcase.jsx";
 
+// Google Identity Services must be initialised once per page; re-initialising on every render breaks the button.
+let gisClientId = null;
+const gisCallback = { current: null };
+
 function GoogleButton({ clientId, onCredential }) {
   const ref = useRef(null);
+  gisCallback.current = onCredential;
   useEffect(() => {
     if (!clientId) return;
     let cancelled = false;
     const init = () => {
       if (cancelled) return;
       if (!window.google?.accounts?.id || !ref.current) return setTimeout(init, 200);
-      window.google.accounts.id.initialize({ client_id: clientId, callback: ({ credential }) => onCredential(credential) });
+      if (gisClientId !== clientId) {
+        window.google.accounts.id.initialize({ client_id: clientId, callback: ({ credential }) => gisCallback.current?.(credential) });
+        gisClientId = clientId;
+      }
       window.google.accounts.id.renderButton(ref.current, {
         theme: document.documentElement.dataset.theme === "dark" ? "filled_black" : "outline",
         size: "large",
@@ -25,7 +33,7 @@ function GoogleButton({ clientId, onCredential }) {
     return () => {
       cancelled = true;
     };
-  }, [clientId, onCredential]);
+  }, [clientId]);
   return <div ref={ref} className="google-btn" />;
 }
 
@@ -39,7 +47,92 @@ function Field({ label, hint, ...props }) {
   );
 }
 
-function SignIn({ onLogin, busy, run }) {
+function ForgotPassword({ onLogin, onBack, busy, run }) {
+  const [identifier, setIdentifier] = useState("");
+  const [sent, setSent] = useState(false);
+  const [form, setForm] = useState({ code: "", password: "", confirm_password: "" });
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: k === "code" ? e.target.value.replace(/\D/g, "") : e.target.value }));
+  const mismatch = form.confirm_password && form.password !== form.confirm_password;
+
+  if (!sent) {
+    return (
+      <form
+        className="auth-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            await api.post("/api/auth/forgot", { identifier });
+            setSent(true);
+          });
+        }}
+      >
+        <div className="verify-intro">
+          <h2>Reset your password</h2>
+          <p className="muted">Enter your email or username. If there's an account, we'll email it a 6-digit code.</p>
+        </div>
+        <Field label="Email or username" autoComplete="username" required autoFocus value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
+        <button className="btn primary block" disabled={busy}>
+          {busy ? "Sending…" : "Send code"}
+        </button>
+        <div className="auth-links">
+          <button type="button" className="link-btn" onClick={onBack}>
+            Back to sign in
+          </button>
+        </div>
+      </form>
+    );
+  }
+  return (
+    <form
+      className="auth-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (mismatch) return;
+        run(async () => onLogin(await api.post("/api/auth/reset", { identifier, ...form })));
+      }}
+    >
+      <div className="verify-intro">
+        <h2>Check your email</h2>
+        <p className="muted">If {identifier} has an account, we've sent it a code. Enter it and choose a new password.</p>
+      </div>
+      <input
+        className="otp-input"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        maxLength={6}
+        required
+        autoFocus
+        placeholder="••••••"
+        value={form.code}
+        onChange={set("code")}
+        aria-label="Reset code"
+      />
+      <Field label="New password" type="password" autoComplete="new-password" required minLength={8} hint="At least 8 characters, with a letter and a number." value={form.password} onChange={set("password")} />
+      <Field
+        label="Confirm new password"
+        type="password"
+        autoComplete="new-password"
+        required
+        value={form.confirm_password}
+        onChange={set("confirm_password")}
+        hint={mismatch ? "The passwords don't match." : ""}
+      />
+      <button className="btn primary block" disabled={busy || form.code.length !== 6 || mismatch}>
+        {busy ? "Saving…" : "Set new password"}
+      </button>
+      <div className="auth-links">
+        <button type="button" className="link-btn" onClick={() => run(async () => api.post("/api/auth/forgot", { identifier }))}>
+          Resend code
+        </button>
+        <button type="button" className="link-btn" onClick={onBack}>
+          Back to sign in
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function SignIn({ onLogin, onForgot, busy, run }) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   return (
@@ -52,6 +145,11 @@ function SignIn({ onLogin, busy, run }) {
     >
       <Field label="Email or username" autoComplete="username" required value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
       <Field label="Password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+      <div className="forgot-row">
+        <button type="button" className="link-btn" onClick={onForgot}>
+          Forgot password?
+        </button>
+      </div>
       <button className="btn primary block" disabled={busy}>
         {busy ? "Signing in…" : "Sign in"}
       </button>
@@ -293,13 +391,21 @@ export default function Login({ config, onLogin }) {
       <div className="login-card">
         <div className="login-brand">
           <LogoMark size={40} />
-          <h1>{mode === "signup" ? "Create your account" : mode === "verify" ? "Verify your email" : "Welcome back"}</h1>
+          <h1>{mode === "signup" ? "Create your account" : mode === "verify" ? "Verify your email" : mode === "forgot" ? "Forgot password" : "Welcome back"}</h1>
           <p className="muted">
-            {mode === "signup" ? "Start chatting with any website in minutes." : mode === "verify" ? "One last step." : "Sign in to SiteBot to continue."}
+            {mode === "signup"
+              ? "Start chatting with any website in minutes."
+              : mode === "verify"
+                ? "One last step."
+                : mode === "forgot"
+                  ? "We'll help you set a new one."
+                  : "Sign in to SiteBot to continue."}
           </p>
         </div>
 
-        {mode === "verify" ? (
+        {mode === "forgot" ? (
+          <ForgotPassword onLogin={onLogin} onBack={() => switchMode("signin")} busy={busy} run={run} />
+        ) : mode === "verify" ? (
           <VerifyEmail email={pendingEmail} onLogin={onLogin} onBack={() => switchMode("signup")} busy={busy} run={run} />
         ) : (
           <>
@@ -322,7 +428,7 @@ export default function Login({ config, onLogin }) {
             )}
 
             {mode === "signin" ? (
-              <SignIn onLogin={onLogin} busy={busy} run={run} />
+              <SignIn onLogin={onLogin} onForgot={() => switchMode("forgot")} busy={busy} run={run} />
             ) : (
               <SignUp
                 busy={busy}
@@ -338,7 +444,7 @@ export default function Login({ config, onLogin }) {
 
         {error && <p className="error">{error}</p>}
 
-        {config.dev_auth && mode !== "verify" && (
+        {config.dev_auth && mode !== "verify" && mode !== "forgot" && (
           <form
             className="dev-login"
             onSubmit={(e) => {

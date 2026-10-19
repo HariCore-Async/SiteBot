@@ -1769,6 +1769,42 @@ input[type="search"]::-webkit-search-cancel-button {
   padding: 0;
 }
 
+.forgot-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+}
+.settings h1 {
+  font-size: 26px;
+  font-weight: 650;
+  margin-bottom: 20px;
+}
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 520px;
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.settings-card h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.settings-card > p {
+  margin: -6px 0 0;
+  font-size: 13.5px;
+}
+.settings-card .btn {
+  align-self: flex-start;
+}
+.settings-card .info-row {
+  font-size: 14px;
+}
+
 /* ---------- Admin ---------- */
 .admin h1 {
   font-size: 26px;

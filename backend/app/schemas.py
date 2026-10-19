@@ -30,6 +30,27 @@ class PasswordLogin(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class ForgotPassword(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+
+
+class ResetPassword(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+    code: str = Field(min_length=6, max_length=6)
+    password: str = Field(min_length=1, max_length=200)
+    confirm_password: str = Field(min_length=1, max_length=200)
+
+
+class ChangePassword(BaseModel):
+    current_password: str | None = Field(default=None, max_length=200)
+    password: str = Field(min_length=1, max_length=200)
+    confirm_password: str = Field(min_length=1, max_length=200)
+
+
+class SetUsername(BaseModel):
+    username: str = Field(min_length=3, max_length=30)
+
+
 class DevLogin(BaseModel):
     email: str
 
@@ -102,5 +123,5 @@ def site_out(s: Site) -> dict:
 def user_out(u: User) -> dict:
     return {
         "id": u.id, "email": u.email, "username": u.username, "name": u.name, "picture": u.picture, "role": u.role,
-        "limit_usd": u.limit_usd,
+        "limit_usd": u.limit_usd, "has_password": bool(u.password_hash),
     }

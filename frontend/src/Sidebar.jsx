@@ -1,6 +1,6 @@
 import { useState } from "react";
 import ThemeToggle from "./ThemeToggle.jsx";
-import { HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon, TrashIcon } from "./Icons.jsx";
+import { HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from "./Icons.jsx";
 import { useConfirm } from "./Confirm.jsx";
 import { money } from "./api.js";
 
@@ -185,6 +185,14 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
             <div className="me-name">{me.name}</div>
             <div className="me-role">{me.role}</div>
           </div>
+          <button
+            className={`icon-btn ${view.type === "settings" ? "active" : ""}`}
+            onClick={() => go({ type: "settings" })}
+            title="Your settings"
+            aria-label="Your settings"
+          >
+            <UserIcon />
+          </button>
           {me.role === "admin" && (
             <button
               className={`icon-btn ${view.type === "admin" ? "active" : ""}`}

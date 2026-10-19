@@ -20,7 +20,7 @@ from .ingest import is_running, start_ingestion
 from .models import AccessGrant, Chat, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
-    AddSite, AdminSettingsIn, Ask, BudgetIn, ReindexIn, DevLogin, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, AdminSettingsIn, Ask, BudgetIn, ChangePassword, ForgotPassword, ReindexIn, ResetPassword, SetUsername, DevLogin, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     VerifyCode, site_out, user_out,
 )
 from .usage import global_budget, set_global_budget, usage_summary
@@ -125,9 +125,63 @@ def resend_code(body: ResendCode, db: Session = Depends(get_db)):
 @app.post("/api/auth/login")
 def password_login(body: PasswordLogin, response: Response, db: Session = Depends(get_db)):
     user = accounts.find_account(db, body.identifier)
+    if user and not user.password_hash:
+        raise HTTPException(
+            401, "This account signs in with Google and has no password yet. Continue with Google, or use Forgot password to set one."
+        )
     if not user or not accounts.check_password(body.password, user.password_hash):
         raise HTTPException(401, "That email/username and password don't match.")
     return user_out(login_user(db, response, user.email))
+
+
+@app.post("/api/auth/forgot")
+def forgot_password(body: ForgotPassword, db: Session = Depends(get_db)):
+    """Emails a reset code. Always answers the same way, so it can't be used to check who has an account."""
+    user = accounts.find_account(db, body.identifier)
+    if user:
+        accounts.send_code(db, user.email, {"purpose": "reset"})
+    return {"ok": True}
+
+
+@app.post("/api/auth/reset")
+def reset_password(body: ResetPassword, response: Response, db: Session = Depends(get_db)):
+    accounts.validate_password(body.password)
+    if body.password != body.confirm_password:
+        raise HTTPException(400, "The passwords don't match.")
+    user = accounts.find_account(db, body.identifier)
+    if not user:
+        raise HTTPException(400, "That code isn't right. Check the email and try again.")
+    payload = accounts.check_code(db, user.email, body.code)
+    if payload.get("purpose") != "reset":
+        raise HTTPException(400, "Please request a new code.")
+    user.password_hash = accounts.hash_password(body.password)
+    db.commit()
+    return user_out(login_user(db, response, user.email, email_verified=True))
+
+
+@app.post("/api/me/password")
+def change_password(body: ChangePassword, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if user.password_hash and not accounts.check_password(body.current_password or "", user.password_hash):
+        raise HTTPException(400, "Your current password isn't right.")
+    accounts.validate_password(body.password)
+    if body.password != body.confirm_password:
+        raise HTTPException(400, "The passwords don't match.")
+    user.password_hash = accounts.hash_password(body.password)
+    db.commit()
+    return user_out(user)
+
+
+@app.post("/api/me/username")
+def set_username(body: SetUsername, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    username = body.username.strip()
+    if not accounts.USERNAME_RE.match(username):
+        raise HTTPException(400, "Usernames are 3–30 characters: letters, numbers, dots and underscores.")
+    taken = accounts.find_account(db, username)
+    if taken and taken.id != user.id:
+        raise HTTPException(409, "That username is taken. Try another.")
+    user.username = username
+    db.commit()
+    return user_out(user)
 
 
 @app.post("/api/auth/dev")
