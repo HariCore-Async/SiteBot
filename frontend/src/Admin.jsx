@@ -1,3 +1,4 @@
+import { useConfirm } from "./Confirm.jsx";
 import { useCallback, useEffect, useState } from "react";
 import { api, money, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
@@ -95,6 +96,7 @@ function Users({ me, onUsageChange }) {
 
 function Access() {
   const [data, setData] = useState({ grants: [], admin_emails: [] });
+  const [confirmAsk, confirmDialog] = useConfirm();
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const load = useCallback(() => api.get("/api/admin/access").then(setData).catch((e) => setError(e.message)), []);
@@ -155,7 +157,13 @@ function Access() {
                   <button
                     className="btn ghost small danger"
                     onClick={async () => {
-                      if (!confirm(`Remove access for ${g.email}?`)) return;
+                      const ok = await confirmAsk({
+                        title: `Remove access for ${g.email}?`,
+                        message: g.domain_access ? `Everyone at @${g.domain_access} will lose access too.` : "They won't be able to sign in any more.",
+                        confirmLabel: "Remove access",
+                        danger: true,
+                      });
+                      if (!ok) return;
                       await api.del(`/api/admin/access/${g.id}`);
                       load();
                     }}
@@ -168,6 +176,7 @@ function Access() {
           </tbody>
         </table>
       </div>
+      {confirmDialog}
     </section>
   );
 }
@@ -201,6 +210,7 @@ function Budget({ onUsageChange }) {
 
 function Bots({ sites, refreshSites }) {
   const [error, setError] = useState("");
+  const [confirmAsk, confirmDialog] = useConfirm();
   const act = async (fn) => {
     setError("");
     try {
@@ -248,8 +258,14 @@ function Bots({ sites, refreshSites }) {
                   <button
                     className="btn ghost small danger"
                     disabled={s.running}
-                    onClick={() => {
-                      if (confirm(`Delete ${s.name} Chatbot and all its chats? This can't be undone.`)) act(() => api.del(`/api/admin/sites/${s.id}`));
+                    onClick={async () => {
+                      const ok = await confirmAsk({
+                        title: `Delete ${s.name} Chatbot?`,
+                        message: "This deletes the bot, its index and everyone's chats with it. You can't undo this.",
+                        confirmLabel: "Delete bot",
+                        danger: true,
+                      });
+                      if (ok) act(() => api.del(`/api/admin/sites/${s.id}`));
                     }}
                   >
                     Delete
@@ -260,6 +276,7 @@ function Bots({ sites, refreshSites }) {
           </tbody>
         </table>
       </div>
+      {confirmDialog}
     </section>
   );
 }

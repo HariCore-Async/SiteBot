@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useConfirm } from "./Confirm.jsx";
 import { api, streamAnswer, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
 
@@ -55,58 +56,12 @@ const mdComponents = {
     ),
 };
 
-function PagesDrawer({ site, onClose }) {
-  const [pages, setPages] = useState(null);
-  useEffect(() => {
-    api.get(`/api/sites/${site.id}/pages`).then(setPages).catch(() => setPages([]));
-  }, [site.id]);
-  const indexed = (pages || []).filter((p) => p.status === "indexed");
-  const skipped = (pages || []).filter((p) => p.status === "login" || p.status === "blocked");
-  return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <div className="drawer" onClick={(e) => e.stopPropagation()}>
-        <div className="drawer-head">
-          <h3>Pages this bot knows</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
-            ×
-          </button>
-        </div>
-        {!pages ? (
-          <p className="muted">Loading…</p>
-        ) : (
-          <>
-            <p className="muted small">
-              {indexed.length} pages indexed{skipped.length ? ` · ${skipped.length} skipped (login or blocked)` : ""}
-            </p>
-            <ul className="page-list">
-              {indexed.map((p) => (
-                <li key={p.url}>
-                  <a href={p.url} target="_blank" rel="noreferrer">
-                    {p.title || p.url}
-                  </a>
-                  <span className="muted small">{hostPath(p.url)}</span>
-                </li>
-              ))}
-              {skipped.map((p) => (
-                <li key={p.url} className="skipped">
-                  <span>{hostPath(p.url)}</span>
-                  <span className={`status ${p.status}`}>{p.status === "login" ? "needs login" : "blocked"}</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [showPages, setShowPages] = useState(false);
+  const [confirmAsk, confirmDialog] = useConfirm();
   const [suggestions, setSuggestions] = useState([]);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
@@ -172,7 +127,13 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
   const remaining = suggestions.filter((q) => !asked.has(q.toLowerCase()));
 
   const startFresh = async () => {
-    if (!confirm("Start a fresh chat? This clears the current conversation.")) return;
+    const ok = await confirmAsk({
+      title: "Start a fresh chat?",
+      message: "This clears the current conversation. You can't undo this.",
+      confirmLabel: "Start fresh",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.post(`/api/chats/${chatId}/reset`);
       setMessages([]);
@@ -202,9 +163,6 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
             Start fresh chat
           </button>
         )}
-        <button className="btn ghost small" onClick={() => setShowPages(true)}>
-          Pages
-        </button>
       </header>
 
       <div className="messages" ref={scrollRef}>
@@ -281,7 +239,7 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
           </svg>
         </button>
       </form>
-      {showPages && <PagesDrawer site={site} onClose={() => setShowPages(false)} />}
+      {confirmDialog}
     </div>
   );
 }
