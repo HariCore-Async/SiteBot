@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import { useConfirm } from "./Confirm.jsx";
 import { api, streamAnswer, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
-import { CloseIcon, RefreshIcon, SendIcon } from "./Icons.jsx";
+import { CloseIcon, ExternalIcon, InfoIcon, RefreshIcon, SendIcon } from "./Icons.jsx";
 
 /** Turns [n] markers into links to the cited page so they render as citation pills. */
 function linkCitations(text, sources) {
@@ -125,7 +125,7 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered, onCl
   };
 
   const asked = new Set(messages.filter((m) => m.role === "user").map((m) => m.content.trim().toLowerCase()));
-  const remaining = suggestions.filter((q) => !asked.has(q.toLowerCase()));
+  const remaining = suggestions.filter((q) => !asked.has(q.toLowerCase())).slice(0, messages.length ? 3 : 6);
 
   const startFresh = async () => {
     const ok = await confirmAsk({
@@ -152,11 +152,23 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered, onCl
         <BotIcon site={site} size={34} />
         <div className="chat-head-meta">
           <h2>{site.name} Chatbot</h2>
-          <div className="muted small">
-            <a href={site.root_url} target="_blank" rel="noreferrer">
-              {site.domain}
-            </a>{" "}
-            · {site.pages_indexed} pages · indexed {timeAgo(site.indexed_at)}
+        </div>
+        <div className="info-wrap">
+          <button className="icon-btn" aria-label={`About the ${site.name} Chatbot`} aria-describedby={`info-${site.id}`}>
+            <InfoIcon />
+          </button>
+          <div className="info-pop" role="tooltip" id={`info-${site.id}`}>
+            <a href={site.root_url} target="_blank" rel="noreferrer" className="info-link">
+              {site.domain} <ExternalIcon />
+            </a>
+            <div className="info-row">
+              <span>Pages read</span>
+              <strong>{site.pages_indexed}</strong>
+            </div>
+            <div className="info-row">
+              <span>Last indexed</span>
+              <strong>{timeAgo(site.indexed_at) || "—"}</strong>
+            </div>
           </div>
         </div>
         {chatId && messages.length > 0 && (

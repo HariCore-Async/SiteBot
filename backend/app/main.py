@@ -17,7 +17,7 @@ from .crawler import CrawlError, normalize_input_url
 from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .ingest import is_running, start_ingestion
-from .models import AccessGrant, Chat, Message, Page, Site, UsageEvent, User, utcnow
+from .models import AccessGrant, Chat, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
     AddSite, Ask, BudgetIn, ReindexIn, DevLogin, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
@@ -154,7 +154,24 @@ def my_usage(user: User = Depends(current_user), db: Session = Depends(get_db)):
 @app.get("/api/sites")
 def list_sites(user: User = Depends(current_user), db: Session = Depends(get_db)):
     sites = db.scalars(select(Site).order_by(Site.name)).all()
-    return [site_out(s) for s in sites]
+    hidden = set(db.scalars(select(HiddenSite.site_id).where(HiddenSite.user_id == user.id)))
+    return [{**site_out(s), "hidden": s.id in hidden} for s in sites]
+
+
+def unhide(db: Session, user: User, site_id: int) -> None:
+    db.execute(delete(HiddenSite).where(HiddenSite.user_id == user.id, HiddenSite.site_id == site_id))
+
+
+@app.post("/api/sites/{site_id}/remove")
+def remove_from_my_list(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Removes a bot from the user's own list and deletes their conversation with it. Other users are unaffected."""
+    if not db.get(Site, site_id):
+        raise HTTPException(404, "Bot not found")
+    db.execute(delete(Chat).where(Chat.user_id == user.id, Chat.site_id == site_id))
+    if not db.get(HiddenSite, (user.id, site_id)):
+        db.add(HiddenSite(user_id=user.id, site_id=site_id))
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/sites")
@@ -166,6 +183,8 @@ def add_site(body: AddSite, user: User = Depends(current_user), db: Session = De
 
     site = db.scalar(select(Site).where(Site.domain == domain))
     if site:
+        unhide(db, user, site.id)
+        db.commit()
         # Same website, any page: reuse the index. Only a failed first attempt is retried.
         if site.status == "failed" and not is_running(site.id):
             site.root_url, site.include_pdfs, site.status = start_url, body.include_pdfs, "queued"
@@ -248,7 +267,8 @@ def new_chat(body: NewChat, user: User = Depends(current_user), db: Session = De
     if not chat:
         chat = Chat(user_id=user.id, site_id=site.id)
         db.add(chat)
-        db.commit()
+    unhide(db, user, site.id)
+    db.commit()
     return chat_out(chat)
 
 

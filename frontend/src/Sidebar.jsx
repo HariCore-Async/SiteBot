@@ -1,6 +1,7 @@
 import { useState } from "react";
 import ThemeToggle from "./ThemeToggle.jsx";
-import { HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon } from "./Icons.jsx";
+import { HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon, TrashIcon } from "./Icons.jsx";
+import { useConfirm } from "./Confirm.jsx";
 import { money } from "./api.js";
 
 export function BotIcon({ site, size = 28 }) {
@@ -55,14 +56,15 @@ function UsageBar({ usage }) {
 
 const STATUS_LABEL = { queued: "Queued", crawling: "Reading", embedding: "Learning", failed: "Failed" };
 
-export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go, openBot, logout }) {
+export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go, openBot, onRemoveBot, logout }) {
+  const [confirmAsk, confirmDialog] = useConfirm();
   const [query, setQuery] = useState("");
   const chatsBySite = {};
   for (const c of chats) (chatsBySite[c.site_id] ||= []).push(c);
 
   // The sidebar shows your bots (ones you added or chatted with); the rest of the library is found by searching.
   const q = query.trim().toLowerCase();
-  const mine = sites.filter((s) => s.created_by === me.id || chatsBySite[s.id]);
+  const mine = sites.filter((s) => !s.hidden && (s.created_by === me.id || chatsBySite[s.id]));
   const shown = q ? sites.filter((s) => s.ready && `${s.name} ${s.domain}`.toLowerCase().includes(q)) : mine;
 
   // Most recently used first.
@@ -113,11 +115,31 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
                 <BotIcon site={s} size={24} />
                 <div className="bot-meta">
                   <div className="bot-name">{s.name} Chatbot</div>
-                  <div className="bot-sub">
-                    {s.ready ? s.domain : <span className={`status ${s.status}`}>{STATUS_LABEL[s.status] || s.status}</span>}
-                    {s.ready && s.running && <span className="status crawling"> · re-indexing</span>}
-                  </div>
+                  {(!s.ready || s.running) && (
+                    <div className="bot-sub">
+                      {s.ready ? <span className="status crawling">Re-indexing</span> : <span className={`status ${s.status}`}>{STATUS_LABEL[s.status] || s.status}</span>}
+                    </div>
+                  )}
                 </div>
+                {!q && s.ready && (
+                  <button
+                    className="icon-btn row-action"
+                    title="Remove from your chatbots"
+                    aria-label={`Remove ${s.name} Chatbot from your chatbots`}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const ok = await confirmAsk({
+                        title: `Remove ${s.name} Chatbot?`,
+                        message: "It will disappear from your chatbots and your conversation with it will be deleted. You can add it back any time by searching for it.",
+                        confirmLabel: "Remove",
+                        danger: true,
+                      });
+                      if (ok) onRemoveBot(s.id);
+                    }}
+                  >
+                    <TrashIcon />
+                  </button>
+                )}
                 {busy && <span className="spinner" />}
               </div>
             </div>
@@ -127,22 +149,28 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
 
       <div className="sidebar-foot">
         <UsageBar usage={usage} />
-        {me.role === "admin" && (
-          <button className={`side-link ${view.type === "admin" ? "active" : ""}`} onClick={() => go({ type: "admin" })}>
-            <SettingsIcon /> Admin
-          </button>
-        )}
         <div className="me">
           {me.picture ? <img src={me.picture} alt="" className="avatar" referrerPolicy="no-referrer" /> : <span className="avatar letter">{me.name.charAt(0).toUpperCase()}</span>}
           <div className="me-meta">
             <div className="me-name">{me.name}</div>
             <div className="me-role">{me.role}</div>
           </div>
+          {me.role === "admin" && (
+            <button
+              className={`icon-btn ${view.type === "admin" ? "active" : ""}`}
+              onClick={() => go({ type: "admin" })}
+              title="Admin settings"
+              aria-label="Admin settings"
+            >
+              <SettingsIcon />
+            </button>
+          )}
           <button className="icon-btn" onClick={logout} title="Sign out" aria-label="Sign out">
             <LogOutIcon />
           </button>
         </div>
       </div>
+      {confirmDialog}
     </aside>
   );
 }

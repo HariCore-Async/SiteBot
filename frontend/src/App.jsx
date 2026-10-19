@@ -102,6 +102,20 @@ export default function App() {
     setView({ type: "chat" });
   };
 
+  const removeBot = async (siteId) => {
+    try {
+      await api.post(`/api/sites/${siteId}/remove`);
+    } catch (e) {
+      return showToast(e.message);
+    }
+    const rest = panes.filter((id) => id !== siteId);
+    setPanes(rest);
+    setActivePane(0);
+    if (view.type === "chat" && !rest.length) setView({ type: "home" });
+    refreshSites();
+    refreshChats();
+  };
+
   const closePane = (siteId) => {
     const rest = panes.filter((id) => id !== siteId);
     setPanes(rest);
@@ -147,7 +161,10 @@ export default function App() {
               site={siteById[id]}
               // One conversation per bot: always the user's existing one, if any.
               chatId={chats.find((c) => c.site_id === id)?.id ?? null}
-              onChatCreated={() => refreshChats()}
+              onChatCreated={() => {
+                refreshChats();
+                refreshSites();
+              }}
               onAnswered={(u) => {
                 if (u) setUsage(u);
                 refreshChats();
@@ -169,7 +186,7 @@ export default function App() {
     );
   } else {
     const usedSites = new Set(chats.map((c) => c.site_id));
-    const myBots = sites.filter((s) => s.ready && (s.created_by === me.id || usedSites.has(s.id)));
+    const myBots = sites.filter((s) => s.ready && !s.hidden && (s.created_by === me.id || usedSites.has(s.id)));
     main = (
       <Dashboard
         me={me}
@@ -191,6 +208,7 @@ export default function App() {
         openSiteIds={view.type === "chat" ? panes : []}
         go={go}
         openBot={openBot}
+        onRemoveBot={removeBot}
         logout={logout}
       />
       <div className="scrim" onClick={() => setSidebarOpen(false)} />

@@ -138,6 +138,16 @@ class Chunk(Base):
     )
 
 
+class HiddenSite(Base):
+    """A bot the user removed from their own list. The shared index is untouched; adding it again un-hides it."""
+
+    __tablename__ = "hidden_sites"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Chat(Base):
     __tablename__ = "chats"
 

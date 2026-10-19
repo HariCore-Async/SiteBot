@@ -94,3 +94,22 @@ export const CloseIcon = ({ size = 17 }) => (
     <path d="M6 6l12 12M18 6 6 18" />
   </svg>
 );
+
+export const TrashIcon = ({ size = 15 }) => (
+  <svg {...base(size)}>
+    <path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+  </svg>
+);
+
+export const InfoIcon = ({ size = 17 }) => (
+  <svg {...base(size)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 8h.01" />
+  </svg>
+);
+
+export const ExternalIcon = ({ size = 13 }) => (
+  <svg {...base(size)}>
+    <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </svg>
+);
