@@ -188,9 +188,6 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered, onCl
           <div className="empty">
             <BotIcon site={site} size={56} />
             <h3>Hi, welcome to {site.name}!</h3>
-            <p className="muted">
-              Ask me anything about {site.name}. My answers come only from {site.domain}, with links to the pages they're from.
-            </p>
           </div>
         )}
         {messages.map((m, i) => (
