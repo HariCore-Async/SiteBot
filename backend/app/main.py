@@ -46,6 +46,7 @@ def public_config(db: Session = Depends(get_db)):
     return {
         "google_client_id": settings.google_client_id,
         "require_approval": auth.approval_required(db),
+        "email_enabled": accounts.email_enabled(),
     }
 
 
@@ -69,6 +70,7 @@ def google_login(body: GoogleLogin, response: Response, db: Session = Depends(ge
 @app.post("/api/auth/signup")
 def signup(body: SignUp, db: Session = Depends(get_db)):
     """Step 1 of creating an account: validate, then email a code. Nothing is saved until the code is confirmed."""
+    accounts.require_email()
     email = body.email.strip().lower()
     username = body.username.strip()
     if not accounts.EMAIL_RE.match(email):
@@ -136,6 +138,7 @@ def password_login(body: PasswordLogin, response: Response, db: Session = Depend
 @app.post("/api/auth/forgot")
 def forgot_password(body: ForgotPassword, db: Session = Depends(get_db)):
     """Emails a reset code. Always answers the same way, so it can't be used to check who has an account."""
+    accounts.require_email()
     user = accounts.find_account(db, body.identifier)
     if user:
         accounts.send_code(db, user.email, {"purpose": "reset"})

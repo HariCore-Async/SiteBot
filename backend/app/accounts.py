@@ -97,6 +97,16 @@ def check_code(db: Session, email: str, code: str) -> dict:
 
 # ---------- Delivery ----------
 
+def email_enabled() -> bool:
+    """Whether codes can actually be emailed. Without a provider, sign-up and password reset are switched off."""
+    return bool(settings.resend_api_key or settings.smtp_host)
+
+
+def require_email() -> None:
+    if not email_enabled():
+        raise HTTPException(503, "Email isn't set up yet, so this isn't available. Please continue with Google.")
+
+
 def deliver_code(email: str, code: str) -> None:
     subject = f"{code} is your SiteBot verification code"
     body = (

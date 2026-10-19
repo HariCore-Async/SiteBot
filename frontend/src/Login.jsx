@@ -146,11 +146,13 @@ function SignIn({ onLogin, onForgot, busy, run }) {
     >
       <Field label="Email or username" autoComplete="username" required value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
       <Field label="Password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-      <div className="forgot-row">
-        <button type="button" className="link-btn" onClick={onForgot}>
-          Forgot password?
-        </button>
-      </div>
+      {onForgot && (
+        <div className="forgot-row">
+          <button type="button" className="link-btn" onClick={onForgot}>
+            Forgot password?
+          </button>
+        </div>
+      )}
       <button className="btn primary block" disabled={busy}>
         {busy ? "Signing in…" : "Sign in"}
       </button>
@@ -367,7 +369,7 @@ export default function Login({ config, onLogin }) {
     return (
       <Landing
         onStart={(m) => {
-          setMode(m);
+          setMode(config.email_enabled ? m : "signin");
           setStarted(true);
         }}
         onSupport={() => setSupport(true)}
@@ -405,7 +407,7 @@ export default function Login({ config, onLogin }) {
       <div className="login-card">
         <div className="login-brand">
           <LogoMark size={40} />
-          <h1>{mode === "signup" ? "Create your account" : mode === "verify" ? "Verify your email" : mode === "forgot" ? "Forgot password" : "Welcome back"}</h1>
+          <h1>{mode === "signin" && !config.email_enabled ? "Welcome" : mode === "signup" ? "Create your account" : mode === "verify" ? "Verify your email" : mode === "forgot" ? "Forgot password" : "Welcome back"}</h1>
           <p className="muted">
             {mode === "signup"
               ? "Start chatting with any website in minutes."
@@ -423,6 +425,7 @@ export default function Login({ config, onLogin }) {
           <VerifyEmail email={pendingEmail} onLogin={onLogin} onBack={() => switchMode("signup")} busy={busy} run={run} />
         ) : (
           <>
+            {config.email_enabled && (
             <div className="auth-tabs" role="tablist">
               <button role="tab" aria-selected={mode === "signin"} className={mode === "signin" ? "active" : ""} onClick={() => switchMode("signin")}>
                 Sign in
@@ -431,18 +434,19 @@ export default function Login({ config, onLogin }) {
                 Create account
               </button>
             </div>
+            )}
 
             {config.google_client_id && (
               <>
                 <GoogleButton clientId={config.google_client_id} onCredential={(credential) => run(async () => onLogin(await api.post("/api/auth/google", { credential })))} />
                 <div className="divider">
-                  <span>or {mode === "signin" ? "sign in" : "sign up"} with email</span>
+                  <span>{config.email_enabled ? `or ${mode === "signin" ? "sign in" : "sign up"} with email` : "or use a password you've set"}</span>
                 </div>
               </>
             )}
 
             {mode === "signin" ? (
-              <SignIn onLogin={onLogin} onForgot={() => switchMode("forgot")} busy={busy} run={run} />
+              <SignIn onLogin={onLogin} onForgot={config.email_enabled ? () => switchMode("forgot") : null} busy={busy} run={run} />
             ) : (
               <SignUp
                 busy={busy}
