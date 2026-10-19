@@ -1608,25 +1608,44 @@ input[type="search"]::-webkit-search-cancel-button {
 .preview-stage {
   display: grid;
 }
+.preview-stage {
+  overflow: hidden;
+}
+/* Slides glide in from the side they are on, with a soft fade, blur and scale. */
 .preview-stage > .preview-body {
   grid-area: 1 / 1;
   opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.45s ease, transform 0.45s ease;
+  filter: blur(4px);
+  transform: translateX(calc(var(--offset, 1) * 56px)) scale(0.97);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.7s cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
 }
 .preview-stage > .preview-body.active {
   opacity: 1;
+  filter: none;
   transform: none;
   pointer-events: auto;
 }
+.preview-site {
+  animation: fade-in 0.5s ease;
+}
+.showcase-hint {
+  margin: -6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
 .showcase-dots {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
 }
 .showcase-dots button {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   padding: 0;
   border: 0;
   border-radius: 999px;
@@ -1635,12 +1654,14 @@ input[type="search"]::-webkit-search-cancel-button {
   transition: width 0.25s ease, background 0.25s ease;
 }
 .showcase-dots button.active {
-  width: 22px;
+  width: 20px;
   background: var(--text);
 }
 @media (prefers-reduced-motion: reduce) {
   .preview-stage > .preview-body {
-    transition: none;
+    transition: opacity 0.2s;
+    transform: none;
+    filter: none;
   }
 }
 .preview-body {
