@@ -17,7 +17,7 @@ from .crawler import CrawlError, normalize_input_url
 from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .ingest import is_running, start_ingestion
-from .models import AccessGrant, Chat, Message, Page, Site, UsageEvent, User
+from .models import AccessGrant, Chat, Message, Page, Site, UsageEvent, User, utcnow
 from .schemas import (
     AddSite, Ask, BudgetIn, DevLogin, GoogleLogin, GrantIn, NewChat, UserUpdate, site_out, user_out,
 )
@@ -168,8 +168,24 @@ def new_chat(body: NewChat, user: User = Depends(current_user), db: Session = De
     site = db.get(Site, body.site_id)
     if not site:
         raise HTTPException(404, "Bot not found")
-    chat = Chat(user_id=user.id, site_id=site.id)
-    db.add(chat)
+    # Each user has one conversation per bot; reuse it if it exists.
+    chat = db.scalar(
+        select(Chat).where(Chat.user_id == user.id, Chat.site_id == site.id).order_by(Chat.updated_at.desc()).limit(1)
+    )
+    if not chat:
+        chat = Chat(user_id=user.id, site_id=site.id)
+        db.add(chat)
+        db.commit()
+    return chat_out(chat)
+
+
+@app.post("/api/chats/{chat_id}/reset")
+def reset_chat(chat_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Start fresh: clears the conversation (and with it the bot's memory of it)."""
+    chat = own_chat(db, chat_id, user)
+    db.execute(delete(Message).where(Message.chat_id == chat.id))
+    chat.title = "New chat"
+    chat.updated_at = utcnow()
     db.commit()
     return chat_out(chat)
 

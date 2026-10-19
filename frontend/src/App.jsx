@@ -90,11 +90,13 @@ export default function App() {
       />
     );
   } else if (view.type === "chat" && siteById[view.siteId]) {
+    // One conversation per bot: open the existing one wherever the bot was opened from.
+    const chatId = view.chatId ?? chats.find((c) => c.site_id === view.siteId)?.id ?? null;
     main = (
       <ChatView
-        key={`${view.siteId}-${view.chatId ?? "new"}`}
+        key={`${view.siteId}-${chatId ?? "new"}`}
         site={siteById[view.siteId]}
-        chatId={view.chatId}
+        chatId={chatId}
         onChatCreated={(chatId) => {
           setView({ type: "chat", siteId: view.siteId, chatId });
           refreshChats();
@@ -126,11 +128,6 @@ export default function App() {
         view={view}
         go={go}
         logout={logout}
-        onDeleteChat={async (chat) => {
-          await api.del(`/api/chats/${chat.id}`);
-          if (view.chatId === chat.id) go({ type: "chat", siteId: chat.site_id, chatId: null });
-          refreshChats();
-        }}
       />
       <div className="scrim" onClick={() => setSidebarOpen(false)} />
       <main className="main">

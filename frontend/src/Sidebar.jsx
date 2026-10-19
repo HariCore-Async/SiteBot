@@ -54,7 +54,7 @@ function UsageBar({ usage }) {
 
 const STATUS_LABEL = { queued: "Queued", crawling: "Reading", embedding: "Learning", failed: "Failed" };
 
-export default function Sidebar({ me, sites, chats, usage, view, go, logout, onDeleteChat }) {
+export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
   const chatsBySite = {};
   for (const c of chats) (chatsBySite[c.site_id] ||= []).push(c);
 
@@ -99,45 +99,8 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout, onD
                     {s.ready && s.running && <span className="status crawling"> · re-indexing</span>}
                   </div>
                 </div>
-                {s.ready && (
-                  <button
-                    className="icon-btn small"
-                    title="New chat"
-                    aria-label={`New chat with ${s.name}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      go({ type: "chat", siteId: s.id, chatId: null });
-                    }}
-                  >
-                    +
-                  </button>
-                )}
                 {busy && <span className="spinner" />}
               </div>
-              {siteChats.length > 0 && (
-                <ul className="chat-list">
-                  {siteChats.map((c) => (
-                    <li
-                      key={c.id}
-                      className={view.chatId === c.id ? "active" : ""}
-                      onClick={() => go({ type: "chat", siteId: s.id, chatId: c.id })}
-                    >
-                      <span className="chat-title">{c.title}</span>
-                      <button
-                        className="icon-btn tiny"
-                        title="Delete chat"
-                        aria-label="Delete chat"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm("Delete this chat?")) onDeleteChat(c);
-                        }}
-                      >
-                        ×
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
           );
         })}

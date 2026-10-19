@@ -160,6 +160,19 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
     }
   };
 
+  const startFresh = async () => {
+    if (!confirm("Start a fresh chat? This clears the current conversation.")) return;
+    try {
+      await api.post(`/api/chats/${chatId}/reset`);
+      setMessages([]);
+      setError("");
+      onAnswered();
+      inputRef.current?.focus();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   return (
     <div className="chat">
       <header className="chat-head">
@@ -173,6 +186,11 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
             · {site.pages_indexed} pages · indexed {timeAgo(site.indexed_at)}
           </div>
         </div>
+        {chatId && messages.length > 0 && (
+          <button className="btn ghost small" onClick={startFresh} disabled={sending}>
+            Start fresh chat
+          </button>
+        )}
         <button className="btn ghost small" onClick={() => setShowPages(true)}>
           Pages
         </button>

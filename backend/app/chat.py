@@ -18,6 +18,12 @@ log = logging.getLogger(__name__)
 
 NOT_FOUND_TOKEN = "NOT_FOUND"
 GREETING = re.compile(r"^\s*(hi+|hello+|hey+|yo|hola|good (morning|afternoon|evening)|thanks?( you)?|thank you|ty|ok(ay)?|cool|great)[\s!.?]*$", re.I)
+# Questions about the bot itself, which the website can't answer.
+ABOUT_BOT = re.compile(
+    r"^\s*(what (all |else )?(can|do) (you|u) (do|help( me)? with|know)|what can i ask( you)?|who are (you|u)|what are (you|u)"
+    r"|how (do|does) (you|u) work|help( me)?|what is this( bot| app)?)[\s!.?]*$",
+    re.I,
+)
 
 
 def not_found_text(site: Site) -> str:
@@ -121,6 +127,16 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str) -> Iterato
 
     if GREETING.match(question):
         text = f"Hi! I'm the {site.name} Chatbot. Ask me anything about the {site.name} website and I'll answer from its pages, with sources."
+        yield event("token", text=text)
+        yield from finish(text, [], True)
+        return
+
+    if ABOUT_BOT.match(question):
+        text = (
+            f"I'm the {site.name} Chatbot. I've read the public pages of {site.domain}, and I answer questions using only "
+            "what those pages say, with links to the sources. If something isn't on the site, I'll tell you instead of guessing. "
+            f"Try asking what {site.name} offers, how something works, pricing, or contact details."
+        )
         yield event("token", text=text)
         yield from finish(text, [], True)
         return
