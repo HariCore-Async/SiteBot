@@ -1805,6 +1805,53 @@ input[type="search"]::-webkit-search-cancel-button {
   color: var(--text);
   border-bottom-color: var(--text);
 }
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  margin-bottom: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.setting-row p {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+}
+.switch {
+  position: relative;
+  flex: none;
+  width: 42px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s;
+}
+.switch.on {
+  background: var(--accent);
+}
+.switch.on span {
+  transform: translateX(18px);
+}
+.switch:disabled {
+  opacity: 0.5;
+}
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);

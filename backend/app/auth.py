@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db
-from .models import AccessGrant, User, utcnow
+from .models import AccessGrant, AppSetting, User, utcnow
 
 COOKIE_NAME = "sitebot_session"
 SESSION_DAYS = 7
@@ -29,9 +29,24 @@ def is_org_domain(domain: str) -> bool:
     return domain not in PUBLIC_EMAIL_DOMAINS
 
 
+def approval_required(db: Session) -> bool:
+    """Admin switch (Admin > Access). Off by default: anyone can sign in; on: only approved emails and domains."""
+    row = db.get(AppSetting, "require_approval")
+    return bool(row and row.value == "true")
+
+
+def set_approval_required(db: Session, value: bool) -> None:
+    row = db.get(AppSetting, "require_approval")
+    if row:
+        row.value = "true" if value else "false"
+    else:
+        db.add(AppSetting(key="require_approval", value="true" if value else "false"))
+    db.commit()
+
+
 def has_access(db: Session, email: str) -> bool:
     email = email.lower()
-    if email in settings.admin_email_set:
+    if email in settings.admin_email_set or not approval_required(db):
         return True
     if db.scalar(select(AccessGrant.id).where(func.lower(AccessGrant.email) == email)):
         return True

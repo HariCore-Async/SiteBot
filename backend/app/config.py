@@ -33,8 +33,11 @@ class Settings(BaseSettings):
     global_budget_usd: float = 10.0
     default_user_limit_usd: float = 1.0
 
-    max_pages: int = 100
-    max_depth: int = 3
+    # Whole sites are read; this is only a safety ceiling so a huge site can't run forever.
+    max_pages: int = 5000
+    max_depth: int = 8
+    # Above this many pages, the user is warned (with a time estimate) before indexing starts.
+    large_site_pages: int = 300
     crawl_concurrency: int = 8
     enable_playwright: bool = True
 

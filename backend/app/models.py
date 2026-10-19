@@ -87,6 +87,10 @@ class Site(Base):
     status: Mapped[str] = mapped_column(String(20), default="queued")
     message: Mapped[str] = mapped_column(Text, default="")
     include_pdfs: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The user agreed to read the whole site (up to MAX_PAGES); otherwise indexing stops at LARGE_SITE_PAGES.
+    full_crawl: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The last index stopped at the page limit with pages still unread.
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
     # Generation that chat reads from; 0 means never indexed. A re-index builds generation+1, then swaps.
     generation: Mapped[int] = mapped_column(Integer, default=0)
     pages_found: Mapped[int] = mapped_column(Integer, default=0)

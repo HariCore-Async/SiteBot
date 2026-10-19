@@ -37,6 +37,8 @@ class DevLogin(BaseModel):
 class AddSite(BaseModel):
     url: str = Field(min_length=3, max_length=2000)
     include_pdfs: bool = False
+    # Set after the user has seen the large-site warning and chosen to go ahead.
+    confirm_large: bool = False
 
 
 class NewChat(BaseModel):
@@ -61,6 +63,10 @@ class ReindexIn(BaseModel):
     include_pdfs: bool | None = None
 
 
+class AdminSettingsIn(BaseModel):
+    require_approval: bool
+
+
 class BudgetIn(BaseModel):
     global_budget_usd: float = Field(ge=0, le=100000)
 
@@ -76,6 +82,8 @@ def site_out(s: Site) -> dict:
         "running": is_running(s.id),
         "message": s.message,
         "include_pdfs": s.include_pdfs,
+        "full_crawl": s.full_crawl,
+        "truncated": s.truncated,
         "created_by": s.created_by,
         "ready": s.generation > 0,
         "pages_found": s.pages_found,

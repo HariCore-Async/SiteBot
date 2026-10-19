@@ -99,10 +99,23 @@ function Access() {
   const [confirmAsk, confirmDialog] = useConfirm();
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
+  const [requireApproval, setRequireApproval] = useState(null);
   const load = useCallback(() => api.get("/api/admin/access").then(setData).catch((e) => setError(e.message)), []);
   useEffect(() => {
     load();
+    api.get("/api/admin/settings").then((s) => setRequireApproval(s.require_approval)).catch(() => {});
   }, [load]);
+
+  const toggleApproval = async () => {
+    const next = !requireApproval;
+    setRequireApproval(next);
+    try {
+      await api.put("/api/admin/settings", { require_approval: next });
+    } catch (e) {
+      setRequireApproval(!next);
+      setError(e.message);
+    }
+  };
 
   const add = async (e) => {
     e.preventDefault();
@@ -118,9 +131,30 @@ function Access() {
 
   return (
     <section>
+      <div className="setting-row">
+        <div>
+          <strong>Require approval for new users</strong>
+          <p className="muted">
+            {requireApproval
+              ? "On: only the emails and company domains approved below can sign in."
+              : "Off: anyone can create an account (their email is verified with a code) or sign in with Google."}
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={!!requireApproval}
+          aria-label="Require approval for new users"
+          className={`switch ${requireApproval ? "on" : ""}`}
+          disabled={requireApproval === null}
+          onClick={toggleApproval}
+        >
+          <span />
+        </button>
+      </div>
       <p className="muted">
         Approve an email to let that person sign in, with Google or by creating an account with that email. Approving a company
         email (not Gmail, Outlook, etc.) gives everyone at that company's domain access.
+        {!requireApproval && " These approvals only take effect while approval is required."}
       </p>
       <form className="add-form compact" onSubmit={add}>
         <input type="email" required placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />

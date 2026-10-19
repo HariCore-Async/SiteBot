@@ -6,6 +6,7 @@ import threading
 
 from sqlalchemy import delete
 
+from .config import settings
 from .crawler import Crawler, CrawlError, PageResult, extract_site_identity
 from .db import SessionLocal
 from .embeddings import embed_passages
@@ -19,6 +20,9 @@ EMBED_BATCH = 64
 
 _running: set[int] = set()
 _running_lock = threading.Lock()
+# One website is indexed at a time: each crawl runs a headless browser and the embedding model, and several at once
+# can exhaust a small server's memory. Others wait their turn in the queue.
+_one_at_a_time = threading.Semaphore(1)
 
 
 def chunk_text(text: str) -> list[str]:
@@ -63,7 +67,20 @@ def start_ingestion(site_id: int) -> bool:
 
 def _run(site_id: int) -> None:
     try:
-        run_ingestion(site_id)
+        if not _one_at_a_time.acquire(blocking=False):
+            db = SessionLocal()
+            try:
+                site = db.get(Site, site_id)
+                site.status = "queued"
+                site.message = "Waiting for another website to finish indexing…"
+                db.commit()
+            finally:
+                db.close()
+            _one_at_a_time.acquire()
+        try:
+            run_ingestion(site_id)
+        finally:
+            _one_at_a_time.release()
     finally:
         with _running_lock:
             _running.discard(site_id)
@@ -101,7 +118,8 @@ def run_ingestion(site_id: int) -> None:
         db.commit()
 
     try:
-        crawler = Crawler(site.domain, site.root_url, site.include_pdfs, on_page, on_progress)
+        limit = settings.max_pages if site.full_crawl else settings.large_site_pages
+        crawler = Crawler(site.domain, site.root_url, site.include_pdfs, on_page, on_progress, max_pages=limit)
         crawler.run()
         if crawler.homepage_html:
             name, favicon = extract_site_identity(crawler.homepage_html, crawler.homepage_url, site.domain)
@@ -133,6 +151,7 @@ def run_ingestion(site_id: int) -> None:
         site.status = "ready"
         site.indexed_at = utcnow()
         site.suggestions = None  # regenerated from the new pages on next request
+        site.truncated = crawler.truncated
         parts = [f"Indexed {site.pages_indexed} page{'' if site.pages_indexed == 1 else 's'}"]
         if site.pages_login:
             parts.append(f"{site.pages_login} skipped (login required)")
@@ -140,6 +159,8 @@ def run_ingestion(site_id: int) -> None:
             parts.append(f"{site.pages_blocked} blocked")
         if site.pages_failed:
             parts.append(f"{site.pages_failed} failed")
+        if crawler.truncated:
+            parts.append("more pages not yet read")
         site.message = " · ".join(parts)
         db.commit()
         db.execute(delete(Chunk).where(Chunk.site_id == site_id, Chunk.generation != gen))

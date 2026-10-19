@@ -13,14 +13,14 @@ from . import accounts, auth
 from .auth import admin_user, current_user, email_domain, is_org_domain, login_user
 from .chat import answer_stream
 from .config import settings
-from .crawler import CrawlError, normalize_input_url
+from .crawler import Crawler, CrawlError, normalize_input_url
 from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .ingest import is_running, start_ingestion
 from .models import AccessGrant, Chat, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
-    AddSite, Ask, BudgetIn, ReindexIn, DevLogin, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, AdminSettingsIn, Ask, BudgetIn, ReindexIn, DevLogin, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     VerifyCode, site_out, user_out,
 )
 from .usage import global_budget, set_global_budget, usage_summary
@@ -42,8 +42,12 @@ app = FastAPI(title="SiteBot", lifespan=lifespan)
 # ---------- Auth ----------
 
 @app.get("/api/config")
-def public_config():
-    return {"google_client_id": settings.google_client_id, "dev_auth": settings.dev_auth}
+def public_config(db: Session = Depends(get_db)):
+    return {
+        "google_client_id": settings.google_client_id,
+        "dev_auth": settings.dev_auth,
+        "require_approval": auth.approval_required(db),
+    }
 
 
 @app.post("/api/auth/google")
@@ -196,10 +200,23 @@ def add_site(body: AddSite, user: User = Depends(current_user), db: Session = De
             return {"site": site_out(site), "existing": False}
         return {"site": site_out(site), "existing": True}
 
+    if not body.confirm_large:
+        pages, exact = Crawler(domain, start_url, body.include_pdfs, lambda r: None, lambda f, d: None).estimate()
+        if pages > settings.large_site_pages:
+            return {
+                "needs_confirm": True,
+                "estimated_pages": pages,
+                "exact": exact,
+                "capped": pages >= settings.max_pages,
+                "max_pages": settings.max_pages,
+                # Rough: crawling ~4 pages/s plus local embedding.
+                "estimated_minutes": max(1, round(pages / 150)),
+            }
+
     label = domain.split(".")[-2] if "." in domain else domain
     site = Site(
         domain=domain, name=label.replace("-", " ").title(), root_url=start_url,
-        include_pdfs=body.include_pdfs, created_by=user.id, message="Queued…",
+        include_pdfs=body.include_pdfs, created_by=user.id, message="Queued…", full_crawl=body.confirm_large,
     )
     db.add(site)
     try:
@@ -218,6 +235,22 @@ def get_site(site_id: int, user: User = Depends(current_user), db: Session = Dep
     site = db.get(Site, site_id)
     if not site:
         raise HTTPException(404, "Bot not found")
+    return site_out(site)
+
+
+@app.post("/api/sites/{site_id}/read-all")
+def read_whole_site(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Re-indexes a bot that stopped at the page limit, this time reading the whole site. The old index keeps working."""
+    site = db.get(Site, site_id)
+    if not site:
+        raise HTTPException(404, "Bot not found")
+    if is_running(site_id):
+        raise HTTPException(409, "This bot is already being indexed.")
+    site.full_crawl = True
+    site.status = "queued"
+    site.message = "Queued to read the whole site…"
+    db.commit()
+    start_ingestion(site_id)
     return site_out(site)
 
 
@@ -385,6 +418,17 @@ def admin_revoke(grant_id: int, _: User = Depends(admin_user), db: Session = Dep
     db.execute(delete(AccessGrant).where(AccessGrant.id == grant_id))
     db.commit()
     return {"ok": True}
+
+
+@app.get("/api/admin/settings")
+def admin_get_settings(_: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return {"require_approval": auth.approval_required(db)}
+
+
+@app.put("/api/admin/settings")
+def admin_set_settings(body: AdminSettingsIn, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    auth.set_approval_required(db, body.require_approval)
+    return {"require_approval": body.require_approval}
 
 
 @app.get("/api/admin/budget")

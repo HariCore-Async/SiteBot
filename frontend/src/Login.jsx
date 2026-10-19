@@ -354,7 +354,9 @@ export default function Login({ config, onLogin }) {
           </form>
         )}
 
-        <p className="fine">Access is by invitation. Your email (or your company's domain) must be approved by an admin.</p>
+        {config.require_approval && (
+          <p className="fine">Access is by invitation. Your email (or your company's domain) must be approved by an admin.</p>
+        )}
       </div>
       </section>
     </div>

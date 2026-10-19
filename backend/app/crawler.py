@@ -278,6 +278,7 @@ class Crawler:
         self.content_hashes: set[str] = set()
         self.homepage_html = ""
         self.homepage_url = ""
+        self.truncated = False  # stopped at max_pages with pages still queued
 
     # robots + sitemaps
     def _load_robots(self, base: str) -> list[str]:
@@ -298,9 +299,9 @@ class Crawler:
 
     def _sitemap_urls(self, sitemaps: list[str]) -> list[str]:
         urls: list[str] = []
-        queue = deque(sitemaps[:5])
+        queue = deque(sitemaps[:10])
         fetched = 0
-        while queue and fetched < 12 and len(urls) < self.max_pages * 5:
+        while queue and fetched < 60 and len(urls) < self.max_pages * 2:
             sm = queue.popleft()
             fetched += 1
             try:
@@ -363,6 +364,26 @@ class Crawler:
             return PageResult(url=final_url, status="empty", links=links, html=html)
         return PageResult(url=final_url, status="indexed", title=extract_title(html), text=text, rendered=rendered, links=links, html=html)
 
+    def estimate(self) -> tuple[int, bool]:
+        """Quick page count before indexing: (pages, exact). Combines the sitemap with the homepage's links;
+        sites often list only some pages in their sitemap, so this is usually a lower bound."""
+        try:
+            base = f"{urlparse(self.start_url).scheme}://{urlparse(self.start_url).netloc}/"
+            urls = {dedup_key(u) for u in self._sitemap_urls(self._load_robots(base)) if self._allowed(u)}
+            try:
+                r = self.client.get(self.start_url)
+                for u in extract_links(r.text, str(r.url)):
+                    u = canonical(u)
+                    if is_crawlable(u, self.domain) and self._allowed(u):
+                        urls.add(dedup_key(u))
+            except httpx.HTTPError:
+                pass
+            if not self.include_pdfs:
+                urls = {u for u in urls if not u.split("?")[0].lower().endswith(".pdf")}
+            return min(max(len(urls), 1), self.max_pages), False
+        finally:
+            self.client.close()
+
     def run(self) -> None:
         try:
             base = f"{urlparse(self.start_url).scheme}://{urlparse(self.start_url).netloc}/"
@@ -407,6 +428,7 @@ class Crawler:
                         result.html = ""  # free memory
                         self.on_page(result)
                         self.on_progress(min(len(self.seen), self.max_pages), processed)
+                self.truncated = bool(frontier)
         finally:
             self.renderer.close()
             self.client.close()
