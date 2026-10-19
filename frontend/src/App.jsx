@@ -88,6 +88,7 @@ export default function App() {
   // Opens a bot's conversation: beside the current one if there's room.
   const openBot = (siteId) => {
     setSidebarOpen(false);
+    refreshChats(); // a bot just added from its link is now in the user's list
     const open = panes.filter((id) => sites.some((s) => s.id === id));
     const at = open.indexOf(siteId);
     if (at >= 0) {

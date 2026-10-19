@@ -4,7 +4,8 @@ import remarkGfm from "remark-gfm";
 import { useConfirm } from "./Confirm.jsx";
 import { api, streamAnswer, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
-import { CloseIcon, ExternalIcon, InfoIcon, RefreshIcon, SendIcon } from "./Icons.jsx";
+import { CloseIcon, RefreshIcon, SendIcon } from "./Icons.jsx";
+import BotInfo from "./BotInfo.jsx";
 
 /** Turns [n] markers into links to the cited page so they render as citation pills. */
 function linkCitations(text, sources) {
@@ -153,24 +154,7 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered, onCl
         <div className="chat-head-meta">
           <h2>{site.name} Chatbot</h2>
         </div>
-        <div className="info-wrap">
-          <button className="icon-btn" aria-label={`About the ${site.name} Chatbot`} aria-describedby={`info-${site.id}`}>
-            <InfoIcon />
-          </button>
-          <div className="info-pop" role="tooltip" id={`info-${site.id}`}>
-            <a href={site.root_url} target="_blank" rel="noreferrer" className="info-link">
-              {site.domain} <ExternalIcon />
-            </a>
-            <div className="info-row">
-              <span>Pages read</span>
-              <strong>{site.pages_indexed}</strong>
-            </div>
-            <div className="info-row">
-              <span>Last indexed</span>
-              <strong>{timeAgo(site.indexed_at) || "—"}</strong>
-            </div>
-          </div>
-        </div>
+        <BotInfo site={site} />
         {chatId && messages.length > 0 && (
           <button className="btn ghost small" onClick={startFresh} disabled={sending}>
             <RefreshIcon /> <span className="fresh-label">Start fresh chat</span>

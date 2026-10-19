@@ -183,7 +183,10 @@ def add_site(body: AddSite, user: User = Depends(current_user), db: Session = De
 
     site = db.scalar(select(Site).where(Site.domain == domain))
     if site:
+        # Already in the library: reuse the index and put the bot in this user's list.
         unhide(db, user, site.id)
+        if not db.scalar(select(Chat.id).where(Chat.user_id == user.id, Chat.site_id == site.id)):
+            db.add(Chat(user_id=user.id, site_id=site.id))
         db.commit()
         # Same website, any page: reuse the index. Only a failed first attempt is retried.
         if site.status == "failed" and not is_running(site.id):

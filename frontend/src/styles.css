@@ -699,8 +699,13 @@ input[type="search"]::-webkit-search-cancel-button {
   min-width: 0;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-.bot-card > div {
+.bot-card .bot-name {
+  flex: 1;
   min-width: 0;
+  font-size: 14px;
+}
+.bot-card .info-wrap {
+  margin: -6px -6px -6px 0;
 }
 .bot-card:hover {
   border-color: var(--border-strong);

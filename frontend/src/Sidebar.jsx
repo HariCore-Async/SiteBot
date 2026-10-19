@@ -62,10 +62,10 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
   const chatsBySite = {};
   for (const c of chats) (chatsBySite[c.site_id] ||= []).push(c);
 
-  // The sidebar shows your bots (ones you added or chatted with); the rest of the library is found by searching.
+  // The sidebar shows only your bots (ones you added or chatted with). Other bots are added by pasting their link.
   const q = query.trim().toLowerCase();
   const mine = sites.filter((s) => !s.hidden && (s.created_by === me.id || chatsBySite[s.id]));
-  const shown = q ? sites.filter((s) => s.ready && `${s.name} ${s.domain}`.toLowerCase().includes(q)) : mine;
+  const shown = q ? mine.filter((s) => `${s.name} ${s.domain}`.toLowerCase().includes(q)) : mine;
 
   // Most recently used first.
   const ordered = [...shown].sort((a, b) => {
@@ -93,13 +93,13 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
 
       <div className="bot-search">
         <SearchIcon />
-        <input type="search" placeholder="Search chatbots" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search chatbots" />
+        <input type="search" placeholder="Search your chatbots" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search chatbots" />
       </div>
 
       <div className="bot-list">
         <div className="list-label">{q ? "Search results" : "Your chatbots"}</div>
-        {q && ordered.length === 0 && <p className="muted small pad">No chatbots match "{query.trim()}". Create one from its website link.</p>}
-        {!q && ordered.length === 0 && <p className="muted small pad">You haven't used any chatbots yet. Create one, or search the library.</p>}
+        {q && ordered.length === 0 && <p className="muted small pad">None of your chatbots match "{query.trim()}". To add one, use New chatbot and paste its website link.</p>}
+        {!q && ordered.length === 0 && <p className="muted small pad">You don't have any chatbots yet. Use New chatbot to add one.</p>}
         {ordered.map((s) => {
           const busy = !s.ready && s.status !== "failed";
           return (

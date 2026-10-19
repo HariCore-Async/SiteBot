@@ -1,4 +1,4 @@
-import { timeAgo } from "./api.js";
+import BotInfo from "./BotInfo.jsx";
 import { BotIcon } from "./Sidebar.jsx";
 import { ArrowRightIcon, BeakerIcon, GlobeIcon } from "./Icons.jsx";
 
@@ -35,15 +35,18 @@ export default function Dashboard({ me, myBots, onCreate, onChat }) {
           <h3 className="section-title">Your chatbots</h3>
           <div className="bot-grid">
             {myBots.slice(0, 6).map((s) => (
-              <button key={s.id} className="bot-card" onClick={() => onChat(s.id)}>
-                <BotIcon site={s} size={36} />
-                <div>
-                  <div className="bot-name">{s.name} Chatbot</div>
-                  <div className="muted small">
-                    {s.domain} · {s.pages_indexed} pages · {timeAgo(s.indexed_at)}
-                  </div>
-                </div>
-              </button>
+              <div
+                key={s.id}
+                className="bot-card"
+                role="button"
+                tabIndex={0}
+                onClick={() => onChat(s.id)}
+                onKeyDown={(e) => e.key === "Enter" && onChat(s.id)}
+              >
+                <BotIcon site={s} size={32} />
+                <div className="bot-name">{s.name} Chatbot</div>
+                <BotInfo site={s} />
+              </div>
             ))}
           </div>
         </>

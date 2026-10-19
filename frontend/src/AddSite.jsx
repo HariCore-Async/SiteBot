@@ -41,7 +41,7 @@ function Progress({ site, onChat, onRetry }) {
       <p className={failed ? "error" : "muted"}>{site.message}</p>
       <div className="stats">
         <span>
-          <strong>{site.pages_indexed}</strong> pages indexed
+          <strong>{site.pages_indexed}</strong> {site.pages_indexed === 1 ? "page" : "pages"} indexed
         </span>
         {site.pages_login > 0 && (
           <span title="Pages behind a login are skipped; SiteBot only reads public pages.">
