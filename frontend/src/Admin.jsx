@@ -119,8 +119,8 @@ function Access() {
   return (
     <section>
       <p className="muted">
-        Approve an email to let that person sign in with Google. Approving a company email (not Gmail, Outlook, etc.) gives everyone
-        at that company's domain access.
+        Approve an email to let that person sign in, with Google or by creating an account with that email. Approving a company
+        email (not Gmail, Outlook, etc.) gives everyone at that company's domain access.
       </p>
       <form className="add-form compact" onSubmit={add}>
         <input type="email" required placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />

@@ -352,7 +352,11 @@ def admin_update_user(user_id: int, body: UserUpdate, me: User = Depends(admin_u
 
 @app.get("/api/admin/access")
 def admin_access(_: User = Depends(admin_user), db: Session = Depends(get_db)):
-    grants = db.scalars(select(AccessGrant).order_by(AccessGrant.created_at.desc())).all()
+    # Admins from ADMIN_EMAILS are listed once, as admins, even if they were also granted access by email.
+    grants = [
+        g for g in db.scalars(select(AccessGrant).order_by(AccessGrant.created_at.desc()))
+        if g.email.lower() not in settings.admin_email_set
+    ]
     return {
         "grants": [
             {"id": g.id, "email": g.email, "created_by": g.created_by, "created_at": g.created_at.isoformat(),
@@ -368,6 +372,8 @@ def admin_grant(body: GrantIn, me: User = Depends(admin_user), db: Session = Dep
     email = body.email.strip().lower()
     if "@" not in email or "." not in email.split("@")[-1]:
         raise HTTPException(400, "Enter a valid email address.")
+    if email in settings.admin_email_set:
+        raise HTTPException(400, "That email is already an admin, so it already has access.")
     if not db.scalar(select(AccessGrant).where(AccessGrant.email == email)):
         db.add(AccessGrant(email=email, created_by=me.email))
         db.commit()
