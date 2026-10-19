@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
 import ThemeToggle from "./ThemeToggle.jsx";
+import { LogoMark } from "./Icons.jsx";
 
 function GoogleButton({ clientId, onCredential }) {
   const ref = useRef(null);
@@ -195,9 +196,11 @@ export default function Login({ config, onLogin }) {
       </div>
       <div className="login-card">
         <div className="login-brand">
-          <div className="logo-mark">💬</div>
-          <h1>SiteBot</h1>
-          <p className="muted">Chat with any website. Answers come only from the site, with sources.</p>
+          <LogoMark size={40} />
+          <h1>{mode === "signup" ? "Create your account" : mode === "verify" ? "Verify your email" : "Welcome back"}</h1>
+          <p className="muted">
+            {mode === "signup" ? "Start chatting with any website in minutes." : mode === "verify" ? "One last step." : "Sign in to SiteBot to continue."}
+          </p>
         </div>
 
         {mode === "verify" ? (

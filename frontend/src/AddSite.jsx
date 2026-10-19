@@ -111,14 +111,11 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
     );
   }
 
-  const ready = sites.filter((s) => s.ready);
   return (
     <div className="page">
       <div className="hero">
         <h1>Create a chatbot</h1>
-        <p className="muted">
-          Paste a link. SiteBot reads the public pages of that site and answers questions using only what it finds there, with sources.
-        </p>
+        <p className="muted">Paste a website link. We'll read its public pages and build a chatbot that answers only from that site, with sources.</p>
         <form className="add-form" onSubmit={submit}>
           <input
             type="text"
@@ -141,12 +138,6 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
         {notice && <p className="notice">{notice}</p>}
       </div>
 
-      {ready.length > 0 && (
-        <p className="library-hint">
-          📚 {ready.length} chatbot{ready.length === 1 ? " is" : "s are"} already in the library. If the site you paste is one of them,
-          we'll open it right away instead of indexing it again.
-        </p>
-      )}
     </div>
   );
 }

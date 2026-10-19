@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { useConfirm } from "./Confirm.jsx";
 import { api, streamAnswer, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
+import { RefreshIcon, SendIcon } from "./Icons.jsx";
 
 /** Turns [n] markers into links to the cited page so they render as citation pills. */
 function linkCitations(text, sources) {
@@ -160,7 +161,7 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
         </div>
         {chatId && messages.length > 0 && (
           <button className="btn ghost small" onClick={startFresh} disabled={sending}>
-            Start fresh chat
+            <RefreshIcon /> Start fresh chat
           </button>
         )}
       </header>
@@ -203,6 +204,7 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
       </div>
 
       {error && <div className="chat-error">{error}</div>}
+      <div className="composer-wrap">
       {remaining.length > 0 && (
         <div className={`suggestions ${messages.length === 0 ? "intro" : ""}`} aria-label="Suggested questions">
           {remaining.map((q) => (
@@ -234,11 +236,11 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered }) {
           maxLength={2000}
         />
         <button className="btn primary send" disabled={sending || !input.trim()} aria-label="Send">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14M13 6l6 6-6 6" />
-          </svg>
+          <SendIcon />
         </button>
       </form>
+      <p className="composer-note">Answers come only from {site.domain}.</p>
+      </div>
       {confirmDialog}
     </div>
   );

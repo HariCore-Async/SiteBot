@@ -374,6 +374,8 @@ class Crawler:
                 key = dedup_key(u)
                 if key in self.seen or not is_crawlable(u, self.domain) or not self._allowed(u):
                     return
+                if not self.include_pdfs and urlparse(u).path.lower().endswith(".pdf"):
+                    return  # don't spend the page budget downloading PDFs we won't read
                 self.seen.add(key)
                 (frontier.appendleft if front else frontier.append)((u, depth))
 

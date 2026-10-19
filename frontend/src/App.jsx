@@ -6,6 +6,7 @@ import AddSite from "./AddSite.jsx";
 import ChatView from "./ChatView.jsx";
 import Admin from "./Admin.jsx";
 import Dashboard from "./Dashboard.jsx";
+import { MenuIcon } from "./Icons.jsx";
 import { applyInitialTheme } from "./ThemeToggle.jsx";
 
 applyInitialTheme();
@@ -124,7 +125,6 @@ export default function App() {
       <Dashboard
         me={me}
         myBots={myBots}
-        libraryCount={sites.filter((s) => s.ready).length - myBots.length}
         onCreate={() => go({ type: "add" })}
         onChat={(siteId) => go({ type: "chat", siteId, chatId: null })}
       />
@@ -145,9 +145,7 @@ export default function App() {
       <div className="scrim" onClick={() => setSidebarOpen(false)} />
       <main className="main">
         <button className="icon-btn menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
+          <MenuIcon />
         </button>
         {main}
       </main>

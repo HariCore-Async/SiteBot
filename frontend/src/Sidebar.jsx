@@ -1,5 +1,6 @@
 import { useState } from "react";
 import ThemeToggle from "./ThemeToggle.jsx";
+import { HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon } from "./Icons.jsx";
 import { money } from "./api.js";
 
 export function BotIcon({ site, size = 28 }) {
@@ -63,7 +64,6 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
   const q = query.trim().toLowerCase();
   const mine = sites.filter((s) => s.created_by === me.id || chatsBySite[s.id]);
   const shown = q ? sites.filter((s) => s.ready && `${s.name} ${s.domain}`.toLowerCase().includes(q)) : mine;
-  const moreInLibrary = sites.filter((s) => s.ready).length - mine.filter((s) => s.ready).length;
 
   // Most recently used first.
   const ordered = [...shown].sort((a, b) => {
@@ -76,20 +76,26 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
     <aside className="sidebar">
       <div className="sidebar-head">
         <div className="brand" role="button" tabIndex={0} onClick={() => go({ type: "home" })} title="Home">
-          <span className="logo-mark small">💬</span> SiteBot
+          <LogoMark size={26} /> <span>SiteBot</span>
         </div>
         <ThemeToggle />
       </div>
-      <button className="btn primary block" onClick={() => go({ type: "add" })}>
-        + New chatbot
-      </button>
+      <nav className="side-nav">
+        <button className={`side-link ${view.type === "home" ? "active" : ""}`} onClick={() => go({ type: "home" })}>
+          <HomeIcon /> Home
+        </button>
+        <button className={`side-link ${view.type === "add" ? "active" : ""}`} onClick={() => go({ type: "add" })}>
+          <PlusIcon size={17} /> New chatbot
+        </button>
+      </nav>
 
       <div className="bot-search">
+        <SearchIcon />
         <input type="search" placeholder="Search chatbots" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search chatbots" />
       </div>
 
       <div className="bot-list">
-        {!q && ordered.length > 0 && <div className="list-label">Your chatbots</div>}
+        <div className="list-label">{q ? "Search results" : "Your chatbots"}</div>
         {q && ordered.length === 0 && <p className="muted small pad">No chatbots match "{query.trim()}". Create one from its website link.</p>}
         {!q && ordered.length === 0 && <p className="muted small pad">You haven't used any chatbots yet. Create one, or search the library.</p>}
         {ordered.map((s) => {
@@ -105,7 +111,7 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
                   go({ type: "chat", siteId: s.id, chatId: siteChats[0]?.id ?? null });
                 }}
               >
-                <BotIcon site={s} />
+                <BotIcon site={s} size={24} />
                 <div className="bot-meta">
                   <div className="bot-name">{s.name} Chatbot</div>
                   <div className="bot-sub">
@@ -120,13 +126,11 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
         })}
       </div>
 
-      {!q && moreInLibrary > 0 && <p className="library-note">{moreInLibrary} more in the library. Search to find one.</p>}
-
       <div className="sidebar-foot">
         <UsageBar usage={usage} />
         {me.role === "admin" && (
-          <button className={`btn ghost block ${view.type === "admin" ? "active" : ""}`} onClick={() => go({ type: "admin" })}>
-            ⚙ Admin
+          <button className={`side-link ${view.type === "admin" ? "active" : ""}`} onClick={() => go({ type: "admin" })}>
+            <SettingsIcon /> Admin
           </button>
         )}
         <div className="me">
@@ -135,8 +139,8 @@ export default function Sidebar({ me, sites, chats, usage, view, go, logout }) {
             <div className="me-name">{me.name}</div>
             <div className="me-role">{me.role}</div>
           </div>
-          <button className="btn ghost small" onClick={logout}>
-            Sign out
+          <button className="icon-btn" onClick={logout} title="Sign out" aria-label="Sign out">
+            <LogOutIcon />
           </button>
         </div>
       </div>
