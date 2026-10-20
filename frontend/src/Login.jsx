@@ -27,7 +27,8 @@ function GoogleButton({ clientId, onCredential }) {
         size: "large",
         shape: "pill",
         text: "continue_with",
-        width: 320,
+        // Match the form width (Google allows 200-400px) so it lines up with the fields below.
+        width: Math.max(200, Math.min(400, Math.round(ref.current.getBoundingClientRect().width) || 320)),
       });
     };
     init();

@@ -739,6 +739,27 @@ input[type="search"]::-webkit-search-cancel-button {
 }
 
 /* Dashboard */
+.dash-section {
+  margin-bottom: 40px;
+}
+.section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.section-head .section-title {
+  margin-bottom: 2px;
+}
+.section-head p {
+  margin: 0;
+}
+.library-search {
+  margin: 0;
+  width: min(260px, 100%);
+  flex: none;
+}
 .dash-head {
   margin-bottom: 32px;
 }
@@ -1394,6 +1415,12 @@ input[type="search"]::-webkit-search-cancel-button {
   justify-content: center;
   min-height: 44px;
   width: 100%;
+  /* Google's button is an iframe with a light page; matching its colour scheme stops browsers painting
+     an opaque white box behind it in dark mode. */
+  color-scheme: light;
+}
+.google-btn iframe {
+  color-scheme: light;
 }
 .divider {
   display: flex;
@@ -2164,6 +2191,13 @@ td select {
   }
   .dash-options {
     grid-template-columns: 1fr;
+  }
+  .section-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .library-search {
+    width: 100%;
   }
   .steps {
     grid-template-columns: 1fr;
