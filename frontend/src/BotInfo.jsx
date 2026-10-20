@@ -14,7 +14,7 @@ export default function BotInfo({ site, align = "right" }) {
         </a>
         <span className="info-row">
           <span>Pages read</span>
-          <strong>{plural(site.pages_indexed, "page")}</strong>
+          <strong>{plural(site.live_pages || site.pages_indexed, "page")}</strong>
         </span>
         <span className="info-row">
           <span>Last indexed</span>

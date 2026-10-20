@@ -16,7 +16,7 @@ from .config import settings
 from .crawler import Crawler, CrawlError, normalize_input_url
 from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
-from .ingest import is_running, start_ingestion
+from .ingest import is_running, request_stop, start_ingestion
 from .models import AccessGrant, Chat, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
@@ -254,6 +254,7 @@ def add_site(body: AddSite, user: User = Depends(current_user), db: Session = De
         if pages > settings.large_site_pages:
             return {
                 "needs_confirm": True,
+                "domain": domain,
                 "estimated_pages": pages,
                 "exact": exact,
                 "capped": pages >= settings.max_pages,
@@ -287,6 +288,22 @@ def get_site(site_id: int, user: User = Depends(current_user), db: Session = Dep
     return site_out(site)
 
 
+@app.post("/api/sites/{site_id}/stop")
+def stop_indexing(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Stops a running index. Only the person who added the bot, or an admin, can stop it (the index is shared)."""
+    site = db.get(Site, site_id)
+    if not site:
+        raise HTTPException(404, "Bot not found")
+    if user.role != "admin" and site.created_by != user.id:
+        raise HTTPException(403, "Only the person who added this chatbot, or an admin, can stop it.")
+    if not is_running(site_id):
+        raise HTTPException(409, "This chatbot isn't being indexed right now.")
+    request_stop(site_id)
+    site.message = "Stopping…"
+    db.commit()
+    return {"ok": True}
+
+
 @app.post("/api/sites/{site_id}/read-all")
 def read_whole_site(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Re-indexes a bot that stopped at the page limit, this time reading the whole site. The old index keeps working."""
@@ -297,7 +314,7 @@ def read_whole_site(site_id: int, user: User = Depends(current_user), db: Sessio
         raise HTTPException(409, "This bot is already being indexed.")
     site.full_crawl = True
     site.status = "queued"
-    site.message = "Queued to read the whole site…"
+    site.message = "Reading the rest of the website in the background…"
     db.commit()
     start_ingestion(site_id)
     return site_out(site)
@@ -503,7 +520,7 @@ def admin_reindex(
     if body and body.include_pdfs is not None:
         site.include_pdfs = body.include_pdfs
     site.status = "queued"
-    site.message = "Queued for re-indexing…"
+    site.message = "Updating in the background…"
     db.commit()
     start_ingestion(site_id)
     return site_out(site)

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "./api.js";
 import { useConfirm } from "./Confirm.jsx";
 import ReadAllBanner from "./ReadAll.jsx";
+import StopButton from "./StopButton.jsx";
 import { BotIcon } from "./Sidebar.jsx";
 
 function progressOf(s) {
@@ -11,7 +12,7 @@ function progressOf(s) {
   return 2;
 }
 
-function Progress({ site, onChat, onRetry, onSiteChanged }) {
+function Progress({ site, me, onChat, onRetry, onSiteChanged }) {
   const pct = Math.round(progressOf(site));
   const failed = site.status === "failed";
   const done = site.ready && !site.running;
@@ -72,12 +73,17 @@ function Progress({ site, onChat, onRetry, onSiteChanged }) {
           Try again
         </button>
       )}
-      {!done && !failed && <p className="fine">You can leave this page; indexing continues in the background.</p>}
+      {!done && !failed && (
+        <div className="progress-actions">
+          <p className="fine">You can leave this page; indexing continues in the background.</p>
+          <StopButton site={site} me={me} onStopped={onSiteChanged} />
+        </div>
+      )}
     </div>
   );
 }
 
-export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
+export default function AddSite({ me, sites, site, refreshSites, onOpen, onChat }) {
   const [url, setUrl] = useState("");
   const [includePdfs, setIncludePdfs] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -101,7 +107,9 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
         const ok = await confirmAsk({
           title: "This is a large website",
           message:
-            `It has ${res.exact ? "about" : "at least"} ${count} pages, so reading all of it will take roughly ` +
+            (res.exact
+              ? `${res.domain}'s sitemap lists about ${count} pages, so reading all of it will take roughly `
+              : `We found links to at least ${count} pages on ${res.domain}, so reading all of it will take roughly `) +
             `${res.estimated_minutes} minute${res.estimated_minutes === 1 ? "" : "s"}. You can leave while it works.` +
             (res.capped ? ` For safety, indexing stops at ${res.max_pages.toLocaleString()} pages.` : ""),
           confirmLabel: "Proceed",
@@ -128,7 +136,7 @@ export default function AddSite({ sites, site, refreshSites, onOpen, onChat }) {
   if (site) {
     return (
       <div className="page center">
-        <Progress site={site} onChat={onChat} onRetry={() => submit(null, site.root_url, true)} onSiteChanged={refreshSites} />
+        <Progress site={site} me={me} onChat={onChat} onRetry={() => submit(null, site.root_url, true)} onSiteChanged={refreshSites} />
         {confirmDialog}
       </div>
     );

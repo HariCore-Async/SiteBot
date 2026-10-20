@@ -11,7 +11,7 @@ export default function ReadAllBanner({ site, onStarted }) {
     const ok = await confirmAsk({
       title: "Read the whole website?",
       message:
-        `So far we've read the first ${site.pages_indexed} pages of ${site.domain}. Reading everything can take a while ` +
+        `So far we've read the first ${site.live_pages || site.pages_indexed} pages of ${site.domain}. Reading everything can take a while ` +
         "on a large site. The chatbot keeps answering from what it already knows in the meantime.",
       confirmLabel: "Read whole site",
     });
@@ -26,7 +26,7 @@ export default function ReadAllBanner({ site, onStarted }) {
   return (
     <div className="read-all">
       <span>
-        {error || `This website has more pages than we've read so far (${site.pages_indexed}).`}
+        {error || `This website has more pages than we've read so far (${site.live_pages || site.pages_indexed}).`}
       </span>
       <button className="btn small" onClick={start}>
         Read whole site

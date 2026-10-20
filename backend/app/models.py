@@ -91,6 +91,8 @@ class Site(Base):
     full_crawl: Mapped[bool] = mapped_column(Boolean, default=False)
     # The last index stopped at the page limit with pages still unread.
     truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Pages in the live index. Unlike pages_indexed (a progress counter), this only changes when a new index swaps in.
+    live_pages: Mapped[int] = mapped_column(Integer, default=0)
     # Generation that chat reads from; 0 means never indexed. A re-index builds generation+1, then swaps.
     generation: Mapped[int] = mapped_column(Integer, default=0)
     pages_found: Mapped[int] = mapped_column(Integer, default=0)

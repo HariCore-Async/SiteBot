@@ -101,6 +101,7 @@ def site_out(s: Site) -> dict:
         "include_pdfs": s.include_pdfs,
         "full_crawl": s.full_crawl,
         "truncated": s.truncated,
+        "live_pages": s.live_pages,
         "created_by": s.created_by,
         "ready": s.generation > 0,
         "pages_found": s.pages_found,

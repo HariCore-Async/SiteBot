@@ -259,6 +259,7 @@ class Crawler:
         on_page: Callable[[PageResult], None],
         on_progress: Callable[[int, int], None],
         max_pages: int | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
         self.domain = domain
         self.start_url = start_url
@@ -266,6 +267,8 @@ class Crawler:
         self.on_page = on_page
         self.on_progress = on_progress
         self.max_pages = max_pages or settings.max_pages
+        self.should_stop = should_stop or (lambda: False)
+        self.stopped = False  # the user stopped indexing
         self.client = httpx.Client(
             follow_redirects=True,
             timeout=httpx.Timeout(20.0, connect=10.0),
@@ -376,16 +379,19 @@ class Crawler:
                 listed = [u for u in listed if not urlparse(u).path.lower().endswith(".pdf")]
             sitemap_pages = len({dedup_key(u) for u in listed})
             if sitemap_pages > settings.large_site_pages:
-                # A big sitemap is only trusted if its links actually work.
+                # A big sitemap is only trusted if its links actually exist. Only "not found" answers count against it:
+                # rate limits or slow servers say nothing about whether the pages are real.
                 sample = listed[:: max(1, len(listed) // 8)][:8]
-                ok = 0
+                missing = 0
                 for u in sample:
                     try:
-                        ok += self.client.head(u).status_code < 400
+                        # GET, not HEAD: many servers reject HEAD requests. Only the status line is read.
+                        with self.client.stream("GET", u) as resp:
+                            missing += resp.status_code in (404, 410)
                     except httpx.HTTPError:
                         pass
-                if ok < len(sample) / 2:
-                    log.info("Estimate %s: ignoring sitemap (%d urls, %d/%d sample links ok)", self.domain, sitemap_pages, ok, len(sample))
+                if missing > len(sample) / 2:
+                    log.info("Estimate %s: ignoring sitemap (%d urls, %d/%d sample links missing)", self.domain, sitemap_pages, missing, len(sample))
                     sitemap_pages = 0
             links: set[str] = set()
             try:
@@ -428,6 +434,9 @@ class Crawler:
             processed = 0
             with ThreadPoolExecutor(max_workers=settings.crawl_concurrency) as pool:
                 while frontier and processed < self.max_pages:
+                    if self.should_stop():
+                        self.stopped = True
+                        break
                     batch = [frontier.popleft() for _ in range(min(len(frontier), settings.crawl_concurrency, self.max_pages - processed))]
                     depths = dict(batch)
                     for url, early, resp in pool.map(lambda b: self._fetch(b[0]), batch):
