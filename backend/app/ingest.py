@@ -175,6 +175,7 @@ def run_ingestion(site_id: int) -> None:
         site.indexed_at = utcnow()
         site.suggestions = None  # regenerated from the new pages on next request
         site.truncated = crawler.truncated
+        site.live_pages = site.pages_indexed
         parts = [f"Indexed {site.pages_indexed} page{'' if site.pages_indexed == 1 else 's'}"]
         if site.pages_login:
             parts.append(f"{site.pages_login} skipped (login required)")

@@ -32,6 +32,14 @@ def init_db() -> None:
         conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS suggestions JSON"))
         conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS full_crawl BOOLEAN NOT NULL DEFAULT false"))
         conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS truncated BOOLEAN NOT NULL DEFAULT false"))
+        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS live_pages INTEGER NOT NULL DEFAULT 0"))
+        # Count the live index's pages from the pages table (progress counters may be left over from an interrupted run).
+        conn.execute(
+            text(
+                "UPDATE sites s SET live_pages = (SELECT count(*) FROM pages p WHERE p.site_id = s.id "
+                "AND p.generation = s.generation AND p.status = 'indexed') WHERE s.generation > 0"
+            )
+        )
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(40) UNIQUE"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false"))

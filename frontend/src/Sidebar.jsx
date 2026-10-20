@@ -147,7 +147,7 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
                   <div className="bot-name">{s.name} Chatbot</div>
                   {(!s.ready || s.running) && (
                     <div className="bot-sub">
-                      {s.ready ? <span className="status crawling">Re-indexing</span> : <span className={`status ${s.status}`}>{STATUS_LABEL[s.status] || s.status}</span>}
+                      {s.ready ? <span className="status crawling">Updating…</span> : <span className={`status ${s.status}`}>{STATUS_LABEL[s.status] || s.status}</span>}
                     </div>
                   )}
                 </div>

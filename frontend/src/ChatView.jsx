@@ -66,6 +66,17 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered, onCl
   const [error, setError] = useState("");
   const [confirmAsk, confirmDialog] = useConfirm();
   const [suggestions, setSuggestions] = useState([]);
+  const [updatedNote, setUpdatedNote] = useState("");
+  const seenIndexedAt = useRef(site.indexed_at);
+
+  // When a re-index finishes while this chat is open, the new version is already live; say so.
+  useEffect(() => {
+    if (seenIndexedAt.current && site.indexed_at && site.indexed_at !== seenIndexedAt.current) {
+      const n = site.live_pages || site.pages_indexed;
+      setUpdatedNote(`This chatbot has just been updated. It now knows ${n} page${n === 1 ? "" : "s"} from ${site.domain}.`);
+    }
+    seenIndexedAt.current = site.indexed_at;
+  }, [site.indexed_at, site.live_pages, site.pages_indexed, site.domain]);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const createdChatRef = useRef(null);
@@ -168,6 +179,20 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered, onCl
         )}
       </header>
 
+      {site.ready && site.running && (
+        <div className="update-note" role="status">
+          <span className="spinner" /> Updating this chatbot in the background. You can keep chatting; answers use the current version
+          until the update is ready.
+        </div>
+      )}
+      {updatedNote && (
+        <div className="update-note done" role="status">
+          {updatedNote}
+          <button className="link-btn" onClick={() => setUpdatedNote("")}>
+            Dismiss
+          </button>
+        </div>
+      )}
       <ReadAllBanner site={site} onStarted={onSiteChanged} />
       <div className="messages" ref={scrollRef}>
         {messages.length === 0 && (

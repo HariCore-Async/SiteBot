@@ -54,9 +54,11 @@ export default function App() {
 
   // Keep polling while any bot is being indexed so progress and status stay live.
   const anyRunning = sites.some((s) => s.running || s.status === "queued" || s.status === "crawling" || s.status === "embedding");
+  // Quick polling while indexing; otherwise a slow check so updates started by someone else (e.g. an admin
+  // re-indexing a bot you have open) still show up.
   useEffect(() => {
-    if (!me || !anyRunning) return;
-    const t = setInterval(refreshSites, 1500);
+    if (!me) return;
+    const t = setInterval(refreshSites, anyRunning ? 1500 : 20000);
     return () => clearInterval(t);
   }, [me, anyRunning, refreshSites]);
 

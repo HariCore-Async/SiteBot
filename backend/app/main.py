@@ -297,7 +297,7 @@ def read_whole_site(site_id: int, user: User = Depends(current_user), db: Sessio
         raise HTTPException(409, "This bot is already being indexed.")
     site.full_crawl = True
     site.status = "queued"
-    site.message = "Queued to read the whole site…"
+    site.message = "Reading the rest of the website in the background…"
     db.commit()
     start_ingestion(site_id)
     return site_out(site)
@@ -503,7 +503,7 @@ def admin_reindex(
     if body and body.include_pdfs is not None:
         site.include_pdfs = body.include_pdfs
     site.status = "queued"
-    site.message = "Queued for re-indexing…"
+    site.message = "Updating in the background…"
     db.commit()
     start_ingestion(site_id)
     return site_out(site)
