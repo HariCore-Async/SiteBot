@@ -16,7 +16,7 @@ from .config import settings
 from .crawler import Crawler, CrawlError, normalize_input_url
 from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
-from .ingest import is_running, start_ingestion
+from .ingest import is_running, request_stop, start_ingestion
 from .models import AccessGrant, Chat, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
@@ -254,6 +254,7 @@ def add_site(body: AddSite, user: User = Depends(current_user), db: Session = De
         if pages > settings.large_site_pages:
             return {
                 "needs_confirm": True,
+                "domain": domain,
                 "estimated_pages": pages,
                 "exact": exact,
                 "capped": pages >= settings.max_pages,
@@ -285,6 +286,22 @@ def get_site(site_id: int, user: User = Depends(current_user), db: Session = Dep
     if not site:
         raise HTTPException(404, "Bot not found")
     return site_out(site)
+
+
+@app.post("/api/sites/{site_id}/stop")
+def stop_indexing(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Stops a running index. Only the person who added the bot, or an admin, can stop it (the index is shared)."""
+    site = db.get(Site, site_id)
+    if not site:
+        raise HTTPException(404, "Bot not found")
+    if user.role != "admin" and site.created_by != user.id:
+        raise HTTPException(403, "Only the person who added this chatbot, or an admin, can stop it.")
+    if not is_running(site_id):
+        raise HTTPException(409, "This chatbot isn't being indexed right now.")
+    request_stop(site_id)
+    site.message = "Stopping…"
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/sites/{site_id}/read-all")

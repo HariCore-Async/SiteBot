@@ -4,7 +4,7 @@ import logging
 import re
 import threading
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from .config import settings
 from .crawler import Crawler, CrawlError, PageResult, extract_site_identity
@@ -23,6 +23,21 @@ _running_lock = threading.Lock()
 # One website is indexed at a time: each crawl runs a headless browser and the embedding model, and several at once
 # can exhaust a small server's memory. Others wait their turn in the queue.
 _one_at_a_time = threading.Semaphore(1)
+_stop_requested: set[int] = set()
+
+
+class Stopped(Exception):
+    """The user stopped indexing."""
+
+
+def request_stop(site_id: int) -> None:
+    with _running_lock:
+        _stop_requested.add(site_id)
+
+
+def stop_requested(site_id: int) -> bool:
+    with _running_lock:
+        return site_id in _stop_requested
 
 
 def chunk_text(text: str) -> list[str]:
@@ -84,13 +99,21 @@ def _run(site_id: int) -> None:
     finally:
         with _running_lock:
             _running.discard(site_id)
+            _stop_requested.discard(site_id)
 
 
 def run_ingestion(site_id: int) -> None:
     db = SessionLocal()
     site = db.get(Site, site_id)
     gen = site.generation + 1
+    updating = site.generation > 0  # a live version exists and keeps serving chats
     pending: list[tuple[str, str, str]] = []  # (url, title, chunk)
+    stopped_early = False
+
+    if stop_requested(site_id):  # stopped while waiting in the queue
+        _finish_stopped(db, site_id, updating)
+        db.close()
+        return
 
     site.status = "crawling"
     site.message = "Reading the website…"
@@ -119,8 +142,19 @@ def run_ingestion(site_id: int) -> None:
 
     try:
         limit = settings.max_pages if site.full_crawl else settings.large_site_pages
-        crawler = Crawler(site.domain, site.root_url, site.include_pdfs, on_page, on_progress, max_pages=limit)
+        crawler = Crawler(
+            site.domain, site.root_url, site.include_pdfs, on_page, on_progress, max_pages=limit,
+            should_stop=lambda: stop_requested(site_id),
+        )
         crawler.run()
+        if crawler.stopped:
+            # An update that's stopped is thrown away. A brand-new bot keeps what was read so far, if anything.
+            if updating or not pending:
+                raise Stopped()
+            stopped_early = True
+            # The stop has been honoured; learn the pages already read so the bot is usable.
+            with _running_lock:
+                _stop_requested.discard(site_id)
         if crawler.homepage_html:
             name, favicon = extract_site_identity(crawler.homepage_html, crawler.homepage_url, site.domain)
             site.name, site.favicon = name, favicon
@@ -162,6 +196,11 @@ def run_ingestion(site_id: int) -> None:
         site.chunks_done = reused
         db.commit()
         for i in range(0, len(fresh), EMBED_BATCH):
+            if stop_requested(site_id):
+                if updating or (reused == 0 and i == 0):
+                    raise Stopped()
+                stopped_early = True
+                break
             batch = fresh[i:i + EMBED_BATCH]
             vectors = embed_passages([f"{title}\n{chunk}" for _, title, chunk in batch])
             for (url, title, chunk), vec in zip(batch, vectors):
@@ -174,8 +213,10 @@ def run_ingestion(site_id: int) -> None:
         site.status = "ready"
         site.indexed_at = utcnow()
         site.suggestions = None  # regenerated from the new pages on next request
-        site.truncated = crawler.truncated
-        site.live_pages = site.pages_indexed
+        site.truncated = crawler.truncated or stopped_early
+        site.live_pages = db.scalar(
+            select(func.count(func.distinct(Chunk.url))).where(Chunk.site_id == site_id, Chunk.generation == gen)
+        )
         parts = [f"Indexed {site.pages_indexed} page{'' if site.pages_indexed == 1 else 's'}"]
         if site.pages_login:
             parts.append(f"{site.pages_login} skipped (login required)")
@@ -183,13 +224,18 @@ def run_ingestion(site_id: int) -> None:
             parts.append(f"{site.pages_blocked} blocked")
         if site.pages_failed:
             parts.append(f"{site.pages_failed} failed")
-        if crawler.truncated:
+        if stopped_early:
+            parts = [f"Stopped by you at {site.live_pages} page{'' if site.live_pages == 1 else 's'}"]
+        elif crawler.truncated:
             parts.append("more pages not yet read")
         site.message = " · ".join(parts)
         db.commit()
         db.execute(delete(Chunk).where(Chunk.site_id == site_id, Chunk.generation != gen))
         db.execute(delete(Page).where(Page.site_id == site_id, Page.generation != gen))
         db.commit()
+    except Stopped:
+        db.rollback()
+        _finish_stopped(db, site_id, updating, gen)
     except Exception as e:  # noqa: BLE001
         log.exception("Ingestion failed for site %s", site_id)
         db.rollback()
@@ -206,3 +252,18 @@ def run_ingestion(site_id: int) -> None:
         db.commit()
     finally:
         db.close()
+
+
+def _finish_stopped(db, site_id: int, updating: bool, gen: int | None = None) -> None:
+    """Undo a stopped run: an update keeps the live version; a new bot with nothing usable is removed."""
+    log.info("Indexing stopped for site %s", site_id)
+    if gen is not None:
+        db.execute(delete(Chunk).where(Chunk.site_id == site_id, Chunk.generation == gen))
+        db.execute(delete(Page).where(Page.site_id == site_id, Page.generation == gen))
+    site = db.get(Site, site_id)
+    if updating:
+        site.status = "ready"
+        site.message = "Update stopped. The previous version is still in use."
+    else:
+        db.delete(site)
+    db.commit()

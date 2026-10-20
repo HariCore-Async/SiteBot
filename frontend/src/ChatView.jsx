@@ -7,6 +7,7 @@ import { BotIcon } from "./Sidebar.jsx";
 import { CloseIcon, RefreshIcon, SendIcon } from "./Icons.jsx";
 import BotInfo from "./BotInfo.jsx";
 import ReadAllBanner from "./ReadAll.jsx";
+import StopButton from "./StopButton.jsx";
 
 /** Turns [n] markers into links to the cited page so they render as citation pills. */
 function linkCitations(text, sources) {
@@ -59,7 +60,7 @@ const mdComponents = {
     ),
 };
 
-export default function ChatView({ site, chatId, onChatCreated, onAnswered, onClose, onSiteChanged }) {
+export default function ChatView({ site, me, chatId, onChatCreated, onAnswered, onClose, onSiteChanged }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -181,8 +182,11 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered, onCl
 
       {site.ready && site.running && (
         <div className="update-note" role="status">
-          <span className="spinner" /> Updating this chatbot in the background. You can keep chatting; answers use the current version
-          until the update is ready.
+          <span className="spinner" />
+          <span className="update-text">
+            Updating this chatbot in the background. You can keep chatting; answers use the current version until the update is ready.
+          </span>
+          {me && <StopButton site={site} me={me} onStopped={onSiteChanged} className="link-btn" />}
         </div>
       )}
       {updatedNote && (

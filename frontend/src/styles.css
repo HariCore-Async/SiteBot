@@ -1242,6 +1242,18 @@ input[type="search"]::-webkit-search-cancel-button {
   font-size: 13px;
   color: var(--muted);
 }
+.update-note .update-text {
+  flex: 1;
+}
+.progress-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.progress-actions .fine {
+  text-align: left;
+}
 .update-note.done {
   justify-content: space-between;
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));

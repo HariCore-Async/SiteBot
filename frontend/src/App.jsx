@@ -143,6 +143,7 @@ export default function App() {
   } else if (view.type === "progress" && siteById[view.siteId]) {
     main = (
       <AddSite
+        me={me}
         sites={sites}
         site={siteById[view.siteId]}
         refreshSites={refreshSites}
@@ -167,6 +168,7 @@ export default function App() {
         {open.map((id, i) => (
           <div key={id} className={`pane ${i === active ? "active" : ""}`} onMouseDown={() => setActivePane(i)}>
             <ChatView
+              me={me}
               site={siteById[id]}
               // One conversation per bot: always the user's existing one, if any.
               chatId={chats.find((c) => c.site_id === id)?.id ?? null}
@@ -188,6 +190,7 @@ export default function App() {
   } else if (view.type === "add") {
     main = (
       <AddSite
+        me={me}
         sites={sites}
         refreshSites={refreshSites}
         onOpen={(siteId) => go({ type: "progress", siteId })}

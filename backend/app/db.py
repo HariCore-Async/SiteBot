@@ -33,10 +33,27 @@ def init_db() -> None:
         conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS full_crawl BOOLEAN NOT NULL DEFAULT false"))
         conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS truncated BOOLEAN NOT NULL DEFAULT false"))
         conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS live_pages INTEGER NOT NULL DEFAULT 0"))
+        # Leftovers from runs interrupted by a restart: a later run of the same generation would otherwise
+        # duplicate them.
+        conn.execute(text("DELETE FROM chunks c USING sites s WHERE c.site_id = s.id AND c.generation > s.generation"))
+        conn.execute(text("DELETE FROM pages p USING sites s WHERE p.site_id = s.id AND p.generation > s.generation"))
+        # Older versions could leave duplicates inside the live generation the same way; remove them once.
+        conn.execute(
+            text(
+                "DELETE FROM chunks a USING chunks b WHERE a.id > b.id AND a.site_id = b.site_id "
+                "AND a.generation = b.generation AND a.url = b.url AND a.content = b.content"
+            )
+        )
+        conn.execute(
+            text(
+                "DELETE FROM pages a USING pages b WHERE a.id > b.id AND a.site_id = b.site_id "
+                "AND a.generation = b.generation AND a.url = b.url"
+            )
+        )
         # Count the live index's pages from the pages table (progress counters may be left over from an interrupted run).
         conn.execute(
             text(
-                "UPDATE sites s SET live_pages = (SELECT count(*) FROM pages p WHERE p.site_id = s.id "
+                "UPDATE sites s SET live_pages = (SELECT count(DISTINCT p.url) FROM pages p WHERE p.site_id = s.id "
                 "AND p.generation = s.generation AND p.status = 'indexed') WHERE s.generation > 0"
             )
         )
