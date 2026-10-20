@@ -81,7 +81,7 @@ export default function ChatView({ site, chatId, onChatCreated, onAnswered, onCl
       .get(`/api/sites/${site.id}/suggestions`)
       .then((d) => setSuggestions(d.questions || []))
       .catch(() => setSuggestions([]));
-  }, [site.id]);
+  }, [site.id, site.indexed_at]);
 
   useEffect(() => {
     const el = scrollRef.current;
