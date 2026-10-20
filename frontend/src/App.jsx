@@ -199,6 +199,7 @@ export default function App() {
       <Dashboard
         me={me}
         myBots={myBots}
+        library={sites.filter((s) => s.ready).sort((a, b) => a.name.localeCompare(b.name))}
         onCreate={() => go({ type: "add" })}
         onChat={openBot}
       />

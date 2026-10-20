@@ -28,24 +28,8 @@ def total_spent(db: Session) -> float:
 
 
 def usage_summary(db: Session, user: User) -> dict:
-    """What the usage meter shows. Members see only their own spend; admins also see the overall budget and every user."""
-    summary = {"user_spent": round(user_spent(db, user.id), 6), "user_limit": user.limit_usd}
-    if user.role != "admin":
-        return summary
-    spent = dict(db.execute(select(UsageEvent.user_id, func.sum(UsageEvent.cost_usd)).group_by(UsageEvent.user_id)).all())
-    users = db.scalars(select(User).order_by(User.created_at)).all()
-    summary.update(
-        global_spent=round(total_spent(db), 6),
-        global_budget=global_budget(db),
-        users=sorted(
-            (
-                {"id": u.id, "name": u.name or u.email, "spent": round(float(spent.get(u.id) or 0), 6), "limit": u.limit_usd}
-                for u in users
-            ),
-            key=lambda r: (r["id"] != user.id, -r["spent"]),
-        ),
-    )
-    return summary
+    """What the usage meter shows: the user's own spend and limit. Admins see everyone's spend in Admin > Users."""
+    return {"user_spent": round(user_spent(db, user.id), 6), "user_limit": user.limit_usd}
 
 
 def check_budget(db: Session, user: User) -> str | None:

@@ -311,11 +311,13 @@ class Crawler:
                 root = etree.fromstring(r.content, parser=etree.XMLParser(recover=True, resolve_entities=False))
             except (httpx.HTTPError, etree.XMLSyntaxError, ValueError):
                 continue
-            if root is None:
+            # Only real sitemaps count. Single-page apps often answer /sitemap.xml with their HTML page.
+            if root is None or not isinstance(root.tag, str) or not root.tag.endswith(("urlset", "sitemapindex")):
                 continue
-            locs = [el.text.strip() for el in root.iter() if el.tag.endswith("loc") and el.text]
+            locs = [el.text.strip() for el in root.iter() if isinstance(el.tag, str) and el.tag.endswith("loc") and el.text]
             if root.tag.endswith("sitemapindex"):
-                queue.extend(locs[:10])
+                # Child sitemaps on other hosts describe other sites.
+                queue.extend(u for u in locs[:20] if host_key(u) == self.domain)
             else:
                 urls.extend(locs)
         cleaned = [canonical(u) for u in urls if is_crawlable(u, self.domain)]
@@ -365,22 +367,38 @@ class Crawler:
         return PageResult(url=final_url, status="indexed", title=extract_title(html), text=text, rendered=rendered, links=links, html=html)
 
     def estimate(self) -> tuple[int, bool]:
-        """Quick page count before indexing: (pages, exact). Combines the sitemap with the homepage's links;
-        sites often list only some pages in their sitemap, so this is usually a lower bound."""
+        """Quick page count before indexing: (pages, from_sitemap). Uses the site's own sitemap when it has one,
+        checking a sample of its links really exist; otherwise counts the homepage's links (a lower bound)."""
         try:
             base = f"{urlparse(self.start_url).scheme}://{urlparse(self.start_url).netloc}/"
-            urls = {dedup_key(u) for u in self._sitemap_urls(self._load_robots(base)) if self._allowed(u)}
+            listed = [u for u in self._sitemap_urls(self._load_robots(base)) if self._allowed(u)]
+            if not self.include_pdfs:
+                listed = [u for u in listed if not urlparse(u).path.lower().endswith(".pdf")]
+            sitemap_pages = len({dedup_key(u) for u in listed})
+            if sitemap_pages > settings.large_site_pages:
+                # A big sitemap is only trusted if its links actually work.
+                sample = listed[:: max(1, len(listed) // 8)][:8]
+                ok = 0
+                for u in sample:
+                    try:
+                        ok += self.client.head(u).status_code < 400
+                    except httpx.HTTPError:
+                        pass
+                if ok < len(sample) / 2:
+                    log.info("Estimate %s: ignoring sitemap (%d urls, %d/%d sample links ok)", self.domain, sitemap_pages, ok, len(sample))
+                    sitemap_pages = 0
+            links: set[str] = set()
             try:
                 r = self.client.get(self.start_url)
                 for u in extract_links(r.text, str(r.url)):
                     u = canonical(u)
                     if is_crawlable(u, self.domain) and self._allowed(u):
-                        urls.add(dedup_key(u))
+                        links.add(dedup_key(u))
             except httpx.HTTPError:
                 pass
-            if not self.include_pdfs:
-                urls = {u for u in urls if not u.split("?")[0].lower().endswith(".pdf")}
-            return min(max(len(urls), 1), self.max_pages), False
+            pages = max(sitemap_pages, len(links) + 1)
+            log.info("Estimate %s: sitemap=%d homepage_links=%d -> %d", self.domain, sitemap_pages, len(links), pages)
+            return min(pages, self.max_pages), sitemap_pages > 0
         finally:
             self.client.close()
 
