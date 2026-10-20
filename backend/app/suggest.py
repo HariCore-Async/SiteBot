@@ -67,6 +67,8 @@ def _generate(db: Session, site: Site, user: User) -> list[str]:
         max_tokens=300,
     )
     record_usage(db, user.id, "suggest", settings.openrouter_fast_model, usage)
+    if not text.strip():
+        log.warning("Suggestion model returned no text for site %s", site.id)
 
     questions: list[str] = []
     for line in text.splitlines():
@@ -85,18 +87,23 @@ def _generate(db: Session, site: Site, user: User) -> list[str]:
 def get_suggestions(db: Session, site: Site, user: User) -> list[str]:
     if site.generation == 0:
         return []
-    if site.suggestions is not None:
+    if site.suggestions:
         return site.suggestions
     with _lock(site.id):
         db.refresh(site)
-        if site.suggestions is not None:
+        if site.suggestions:
             return site.suggestions
-        if check_budget(db, user):
+        if reason := check_budget(db, user):
+            log.info("Suggestions for site %s skipped: %s", site.id, reason)
             return []
         try:
-            site.suggestions = _generate(db, site, user)
+            questions = _generate(db, site, user)
         except llm.LLMError as e:
             log.warning("Suggestion generation failed for site %s: %s", site.id, e)
             return []
-        db.commit()
-        return site.suggestions
+        log.info("Suggestions for site %s: kept %d", site.id, len(questions))
+        # An empty result isn't stored, so the next visit tries again instead of showing nothing forever.
+        if questions:
+            site.suggestions = questions
+            db.commit()
+        return questions

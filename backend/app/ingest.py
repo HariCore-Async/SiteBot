@@ -4,7 +4,7 @@ import logging
 import re
 import threading
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from .config import settings
 from .crawler import Crawler, CrawlError, PageResult, extract_site_identity
@@ -134,16 +134,39 @@ def run_ingestion(site_id: int) -> None:
                 reason = "We couldn't find any readable text on this site."
             raise CrawlError(reason)
 
+        # Pages read last time keep their embeddings: re-indexing or reading the whole site only has to learn new text.
+        known = {
+            (url, content): emb
+            for url, content, emb in db.execute(
+                select(Chunk.url, Chunk.content, Chunk.embedding).where(Chunk.site_id == site_id, Chunk.generation == site.generation)
+            )
+            if emb is not None
+        }
+        reused = 0
+        fresh: list[tuple[str, str, str]] = []
+        for url, title, chunk in pending:
+            emb = known.get((url, chunk))
+            if emb is not None:
+                db.add(Chunk(site_id=site_id, generation=gen, url=url, title=title, content=chunk, embedding=emb))
+                reused += 1
+            else:
+                fresh.append((url, title, chunk))
+        if reused:
+            log.info("Site %s: reusing %d of %d sections from the previous index", site_id, reused, len(pending))
+        db.commit()
+
         site.status = "embedding"
         site.chunks_total = len(pending)
         site.message = f"Learning {len(pending)} sections of content…"
         db.commit()
-        for i in range(0, len(pending), EMBED_BATCH):
-            batch = pending[i:i + EMBED_BATCH]
+        site.chunks_done = reused
+        db.commit()
+        for i in range(0, len(fresh), EMBED_BATCH):
+            batch = fresh[i:i + EMBED_BATCH]
             vectors = embed_passages([f"{title}\n{chunk}" for _, title, chunk in batch])
             for (url, title, chunk), vec in zip(batch, vectors):
                 db.add(Chunk(site_id=site_id, generation=gen, url=url, title=title, content=chunk, embedding=vec))
-            site.chunks_done = min(i + EMBED_BATCH, len(pending))
+            site.chunks_done = reused + min(i + EMBED_BATCH, len(fresh))
             db.commit()
 
         # Swap: the new generation goes live, then the old one is removed.
