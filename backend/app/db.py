@@ -60,6 +60,13 @@ def init_db() -> None:
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(40) UNIQUE"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false"))
+        # Website embeds: visitors' chats have no user, and usage remembers which embed caused it.
+        conn.execute(text("ALTER TABLE chats ALTER COLUMN user_id DROP NOT NULL"))
+        conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS embed_id INTEGER REFERENCES embeds(id) ON DELETE CASCADE"))
+        conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS visitor_id VARCHAR(64)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_embed_id ON chats (embed_id)"))
+        conn.execute(text("ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS embed_id INTEGER REFERENCES embeds(id) ON DELETE SET NULL"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_usage_events_embed_id ON usage_events (embed_id)"))
     with engine.begin() as conn:
         # A crawl that was running when the server stopped can never finish; mark it so it can be retried.
         conn.execute(

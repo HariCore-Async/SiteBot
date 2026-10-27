@@ -330,7 +330,118 @@ function Bots({ sites, refreshSites }) {
   );
 }
 
-const TABS = ["Users", "Access", "Bots", "Budget"];
+const EMBED_STATUS = { pending: ["Waiting", "queued"], approved: ["Approved", "ready"], rejected: ["Not approved", "failed"] };
+
+function Embeds() {
+  const [embeds, setEmbeds] = useState([]);
+  const [caps, setCaps] = useState({});
+  const [error, setError] = useState("");
+  const load = useCallback(() => api.get("/api/admin/embeds").then(setEmbeds).catch((e) => setError(e.message)), []);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const review = async (e, body) => {
+    setError("");
+    try {
+      const updated = await api.patch(`/api/admin/embeds/${e.id}`, body);
+      setEmbeds((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+      setCaps((c) => ({ ...c, [e.id]: undefined }));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <section>
+      <p className="muted">
+        Requests to put a chatbot on its own website. Approved chatbots answer that website's visitors, charged to the owner's credits and
+        stopped for the day at the daily limit.
+      </p>
+      {error && <p className="error">{error}</p>}
+      {!embeds.length ? (
+        <p className="muted small">No requests yet.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Chatbot</th>
+                <th>Owner</th>
+                <th>Status</th>
+                <th>Today / daily limit</th>
+                <th>Total</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {embeds.map((e) => {
+                const [label, cls] = EMBED_STATUS[e.status] || EMBED_STATUS.pending;
+                const cap = caps[e.id];
+                return (
+                  <tr key={e.id}>
+                    <td>
+                      <div className="cell-bot">
+                        <BotIcon site={e.site} size={24} />
+                        <div>
+                          <div className="strong">{e.site.name} Chatbot</div>
+                          <div className="muted small">{e.site.domain}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div>{e.owner.name}</div>
+                      <div className="muted small">{e.owner.email}</div>
+                    </td>
+                    <td>
+                      <span className={`status ${cls}`}>{label}</span>
+                      {e.status === "approved" && !e.enabled && <div className="muted small">Turned off by owner</div>}
+                    </td>
+                    <td>
+                      <form
+                        className="inline-form"
+                        onSubmit={(ev) => {
+                          ev.preventDefault();
+                          review(e, { daily_cap_usd: Number(cap) });
+                        }}
+                      >
+                        <span className="nowrap">{money(e.spent_today_usd)} /</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          aria-label="Daily limit in USD"
+                          value={cap ?? e.daily_cap_usd}
+                          onChange={(ev) => setCaps((c) => ({ ...c, [e.id]: ev.target.value }))}
+                        />
+                        {cap !== undefined && <button className="btn small primary">Save</button>}
+                      </form>
+                    </td>
+                    <td>{money(e.spent_total_usd)}</td>
+                    <td className="actions">
+                      {e.status !== "approved" && (
+                        <button className="btn small primary" onClick={() => review(e, { status: "approved" })}>
+                          Approve
+                        </button>
+                      )}
+                      {e.status !== "rejected" && (
+                        <button className="btn ghost small danger" onClick={() => review(e, { status: "rejected" })}>
+                          {e.status === "approved" ? "Revoke" : "Reject"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const TABS = ["Users", "Access", "Bots", "Embeds", "Budget"];
 
 export default function Admin({ me, sites, refreshSites, onUsageChange }) {
   const [tab, setTab] = useState("Users");
@@ -347,6 +458,7 @@ export default function Admin({ me, sites, refreshSites, onUsageChange }) {
       {tab === "Users" && <Users me={me} onUsageChange={onUsageChange} />}
       {tab === "Access" && <Access />}
       {tab === "Bots" && <Bots sites={sites} refreshSites={refreshSites} />}
+      {tab === "Embeds" && <Embeds />}
       {tab === "Budget" && <Budget onUsageChange={onUsageChange} />}
     </div>
   );

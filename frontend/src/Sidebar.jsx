@@ -1,6 +1,6 @@
 import { useState } from "react";
 import ThemeToggle from "./ThemeToggle.jsx";
-import { HelpIcon, HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from "./Icons.jsx";
+import { CodeIcon, HelpIcon, HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from "./Icons.jsx";
 import { useConfirm } from "./Confirm.jsx";
 import { money } from "./api.js";
 
@@ -118,6 +118,9 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
         </button>
         <button className={`side-link ${view.type === "add" ? "active" : ""}`} onClick={() => go({ type: "add" })}>
           <PlusIcon size={17} /> New chatbot
+        </button>
+        <button className={`side-link ${view.type === "embed" ? "active" : ""}`} onClick={() => go({ type: "embed" })}>
+          <CodeIcon size={17} /> Add to your website
         </button>
       </nav>
 

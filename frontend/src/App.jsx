@@ -6,6 +6,7 @@ import AddSite from "./AddSite.jsx";
 import ChatView from "./ChatView.jsx";
 import Admin from "./Admin.jsx";
 import Dashboard from "./Dashboard.jsx";
+import EmbedPage from "./Embed.jsx";
 import Settings from "./Settings.jsx";
 import Support from "./Support.jsx";
 import { MenuIcon } from "./Icons.jsx";
@@ -136,6 +137,8 @@ export default function App() {
   let main;
   if (view.type === "support") {
     main = <Support />;
+  } else if (view.type === "embed") {
+    main = <EmbedPage me={me} sites={sites} />;
   } else if (view.type === "settings") {
     main = <Settings me={me} onUpdated={(u) => setMe((m) => ({ ...m, ...u }))} />;
   } else if (view.type === "admin" && me.role === "admin") {
@@ -206,6 +209,7 @@ export default function App() {
         myBots={myBots}
         library={sites.filter((s) => s.ready).sort((a, b) => a.name.localeCompare(b.name))}
         onCreate={() => go({ type: "add" })}
+        onEmbed={() => go({ type: "embed" })}
         onChat={openBot}
       />
     );

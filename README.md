@@ -26,6 +26,21 @@ Give it a website link; it reads the site's public pages and becomes a chatbot (
 - Usage bar with a hover tooltip showing your spend vs. your limit, and all users' spend vs. the global budget. The actual OpenRouter cost of each call is recorded.
 - Admin panel: users (role, per-user limit, spend), access approvals, bots (re-index, delete), global budget.
 - Dark/light mode, mobile layout.
+- Website embeds: put a bot you created on its own website with one script tag (see below).
+
+## Website embeds
+
+Home → **Add a chatbot to your website** (or the sidebar's **Add to your website**). Pick one of your chatbots, set its colour, position and greeting with a live preview, and copy the snippet:
+
+```html
+<script src="https://<your-app>/embed.js" data-bot="pk_..." async></script>
+```
+
+- **Approval:** a member's request waits for an admin (**Admin → Embeds**); admins' own are approved at once. Admins can revoke one at any time.
+- **Domain lock:** a bot only shows on its own domain, `www.` and subdomains, over HTTPS. The widget page sends a `Content-Security-Policy: frame-ancestors` header for that domain, so browsers refuse to show it anywhere else, and the public API also checks the website it reports.
+- **Cost:** visitors' questions are charged to the owner's credits (their normal limit and the global budget still apply), plus a per-embed daily limit (`EMBED_DAILY_CAP_USD`, editable per embed in Admin). When a limit is reached, visitors see a polite "taking a short break" message. Each visitor is limited to 6 questions a minute (60 an hour), and each network address to 20 a minute (300 a day).
+- **Visitors** are anonymous: a random id in their browser keeps their conversation. Owners can read their visitors' conversations on the embed page.
+- **Testing locally:** a bot's real domain isn't `localhost`, so set `EMBED_DEV_ORIGINS=http://localhost:5500` for the backend, put the snippet (with `src="http://localhost:8000/embed.js"`) in a plain HTML page, serve it with `python -m http.server 5500`, and run `npm run build` so the backend serves the widget. Never set `EMBED_DEV_ORIGINS` on Railway.
 
 ## Run locally
 
@@ -76,6 +91,8 @@ Keep one replica: indexing jobs run inside the web process.
 | `GLOBAL_BUDGET_USD` | `10` | initial overall budget |
 | `MAX_PAGES` | `100` | pages per site |
 | `ENABLE_PLAYWRIGHT` | `true` | JS rendering fallback |
+| `EMBED_DAILY_CAP_USD` | `0.5` | default daily spend limit for each website embed |
+| `EMBED_DEV_ORIGINS` | *(empty)* | local testing only: extra origins every embed may run on, comma-separated |
 
 ## Limits
 

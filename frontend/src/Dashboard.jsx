@@ -1,7 +1,7 @@
 import { useState } from "react";
 import BotInfo from "./BotInfo.jsx";
 import { BotIcon } from "./Sidebar.jsx";
-import { ArrowRightIcon, BeakerIcon, GlobeIcon, SearchIcon } from "./Icons.jsx";
+import { ArrowRightIcon, CodeIcon, GlobeIcon, SearchIcon } from "./Icons.jsx";
 
 function BotCard({ site, onChat }) {
   return (
@@ -19,7 +19,7 @@ function BotCard({ site, onChat }) {
   );
 }
 
-export default function Dashboard({ me, myBots, library, onCreate, onChat }) {
+export default function Dashboard({ me, myBots, library, onCreate, onEmbed, onChat }) {
   const [query, setQuery] = useState("");
   const firstName = (me.name || "").split(" ")[0] || "there";
   const q = query.trim().toLowerCase();
@@ -45,15 +45,18 @@ export default function Dashboard({ me, myBots, library, onCreate, onChat }) {
           </span>
         </button>
 
-        <div className="dash-card disabled" aria-disabled="true">
+        <button className="dash-card" onClick={onEmbed}>
           <span className="dash-icon">
-            <BeakerIcon />
+            <CodeIcon />
           </span>
-          <h2>
-            Test a website's chatbot <span className="pill">Coming soon</span>
-          </h2>
-          <p className="muted">Check how well the chatbot already on a website answers its visitors' questions.</p>
-        </div>
+          <h2>Add a chatbot to your website</h2>
+          <p className="muted">
+            Put one of your chatbots on its own website with one line of code. Visitors get a chat bubble that answers from your pages.
+          </p>
+          <span className="dash-cta">
+            Set it up <ArrowRightIcon size={15} />
+          </span>
+        </button>
       </div>
 
       {myBots.length > 0 && (

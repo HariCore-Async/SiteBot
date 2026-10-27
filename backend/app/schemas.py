@@ -88,6 +88,30 @@ class BudgetIn(BaseModel):
     global_budget_usd: float = Field(ge=0, le=100000)
 
 
+class EmbedIn(BaseModel):
+    site_id: int
+
+
+class EmbedUpdate(BaseModel):
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    greeting: str | None = Field(default=None, max_length=300)
+    position: str | None = Field(default=None, pattern="^(right|left)$")
+    enabled: bool | None = None
+
+
+class EmbedReview(BaseModel):
+    status: str | None = Field(default=None, pattern="^(approved|rejected|pending)$")
+    daily_cap_usd: float | None = Field(default=None, ge=0, le=1000)
+
+
+class VisitorAsk(BaseModel):
+    visitor_id: str = Field(min_length=16, max_length=64)
+    content: str = Field(min_length=1, max_length=1000)
+    # The website the widget is on, as embed.js reported it. The CSP on the widget page is the real lock.
+    origin: str = Field(default="", max_length=300)
+    preview: bool = False
+
+
 def site_out(s: Site) -> dict:
     return {
         "id": s.id,

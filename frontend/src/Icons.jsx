@@ -77,7 +77,13 @@ export const BeakerIcon = ({ size = 22 }) => (
   </svg>
 );
 
-export const ArrowRightIcon = ({ size = 16 }) => (
+export const CodeIcon = ({ size = 22 }) => (
+  <svg {...base(size)}>
+    <path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 4l-3 16" />
+  </svg>
+);
+
+export const ArrowRightIcon =({ size = 16 }) => (
   <svg {...base(size)}>
     <path d="M5 12h14M13 6l6 6-6 6" />
   </svg>

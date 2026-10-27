@@ -3,7 +3,7 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
@@ -16,12 +16,16 @@ from .config import settings
 from .crawler import Crawler, CrawlError, normalize_input_url
 from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
+from .embeds import (
+    admin_embed_out, check_visitor, client_ip, embed_out, frame_ancestors, ip_limiter, new_key, origin_allowed, read_limiter,
+    require_same_origin, visitor_limiter,
+)
 from .ingest import is_running, request_stop, start_ingestion
-from .models import AccessGrant, Chat, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
+from .models import AccessGrant, Chat, Embed, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
-    AddSite, AdminSettingsIn, Ask, BudgetIn, ChangePassword, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
-    VerifyCode, site_out, user_out,
+    AddSite, AdminSettingsIn, Ask, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    VerifyCode, VisitorAsk, site_out, user_out,
 )
 from .usage import global_budget, set_global_budget, usage_summary
 
@@ -392,15 +396,19 @@ def delete_chat(chat_id: int, user: User = Depends(current_user), db: Session = 
     return {"ok": True}
 
 
-@app.get("/api/chats/{chat_id}/messages")
-def chat_messages(chat_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    own_chat(db, chat_id, user)
+def messages_out(db: Session, chat_id: int) -> list[dict]:
     msgs = db.scalars(select(Message).where(Message.chat_id == chat_id).order_by(Message.id)).all()
     return [
         {"id": m.id, "role": m.role, "content": m.content, "sources": m.sources or [], "grounded": m.grounded,
          "created_at": m.created_at.isoformat()}
         for m in msgs
     ]
+
+
+@app.get("/api/chats/{chat_id}/messages")
+def chat_messages(chat_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    own_chat(db, chat_id, user)
+    return messages_out(db, chat_id)
 
 
 @app.post("/api/chats/{chat_id}/messages")
@@ -413,6 +421,184 @@ def ask(chat_id: int, body: Ask, user: User = Depends(current_user), db: Session
         sdb = SessionLocal()
         try:
             yield from answer_stream(sdb, sdb.get(User, user_id), sdb.get(Chat, chat_id), body.content.strip())
+        finally:
+            sdb.close()
+
+    return StreamingResponse(
+        gen(), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
+
+
+# ---------- Website embeds (owner) ----------
+
+def own_embed(db: Session, embed_id: int, user: User) -> Embed:
+    e = db.get(Embed, embed_id)
+    if not e or e.owner_id != user.id:
+        raise HTTPException(404, "Embed not found")
+    return e
+
+
+@app.get("/api/embeds")
+def list_embeds(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    embeds = db.scalars(select(Embed).where(Embed.owner_id == user.id).order_by(Embed.created_at.desc())).all()
+    return [embed_out(db, e, db.get(Site, e.site_id)) for e in embeds]
+
+
+@app.post("/api/embeds")
+def request_embed(body: EmbedIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Asks to put a bot on its own website. An admin approves it before the snippet works; admins' own are approved at once."""
+    site = db.get(Site, body.site_id)
+    if not site:
+        raise HTTPException(404, "Bot not found")
+    if site.created_by != user.id and user.role != "admin":
+        raise HTTPException(403, "You can only add chatbots you created to a website.")
+    if site.generation == 0:
+        raise HTTPException(409, "This chatbot isn't ready yet. Wait for it to finish learning the website.")
+    e = db.scalar(select(Embed).where(Embed.site_id == site.id, Embed.owner_id == user.id))
+    if not e:
+        e = Embed(key=new_key(), site_id=site.id, owner_id=user.id, status="pending")
+        db.add(e)
+    elif e.status == "rejected":
+        e.status = "pending"
+    if user.role == "admin" and e.status == "pending":
+        e.status, e.reviewed_by, e.reviewed_at = "approved", user.email, utcnow()
+    db.commit()
+    return embed_out(db, e, site)
+
+
+@app.patch("/api/embeds/{embed_id}")
+def update_embed(embed_id: int, body: EmbedUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user)
+    for field in ("color", "greeting", "position", "enabled"):
+        value = getattr(body, field)
+        if value is not None:
+            setattr(e, field, value.strip() if isinstance(value, str) else value)
+    db.commit()
+    return embed_out(db, e, db.get(Site, e.site_id))
+
+
+@app.post("/api/embeds/{embed_id}/rotate-key")
+def rotate_embed_key(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Issues a new key; the old snippet stops working straight away."""
+    e = own_embed(db, embed_id, user)
+    e.key = new_key()
+    db.commit()
+    return embed_out(db, e, db.get(Site, e.site_id))
+
+
+@app.delete("/api/embeds/{embed_id}")
+def delete_embed(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    db.delete(own_embed(db, embed_id, user))
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/embeds/{embed_id}/chats")
+def embed_chats(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user)
+    counts = (
+        select(Message.chat_id, func.count(Message.id).label("n")).group_by(Message.chat_id).subquery()
+    )
+    rows = db.execute(
+        select(Chat, counts.c.n).join(counts, counts.c.chat_id == Chat.id)
+        .where(Chat.embed_id == e.id).order_by(Chat.updated_at.desc()).limit(200)
+    ).all()
+    return [
+        {"id": c.id, "title": c.title, "visitor": (c.visitor_id or "")[:6], "messages": n, "updated_at": c.updated_at.isoformat()}
+        for c, n in rows
+    ]
+
+
+@app.get("/api/embeds/{embed_id}/chats/{chat_id}/messages")
+def embed_chat_messages(embed_id: int, chat_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user)
+    chat = db.get(Chat, chat_id)
+    if not chat or chat.embed_id != e.id:
+        raise HTTPException(404, "Chat not found")
+    return messages_out(db, chat_id)
+
+
+# ---------- Website embeds (public, used by the widget) ----------
+
+def optional_user(request: Request, db: Session) -> User | None:
+    try:
+        return current_user(request, db)
+    except HTTPException:
+        return None
+
+
+def live_embed(db: Session, request: Request, key: str, origin: str, preview: bool) -> tuple[Embed, Site, User]:
+    """The embed a widget request is for, if it may answer. A preview is the owner (or an admin) trying it inside SiteBot."""
+    e = db.scalar(select(Embed).where(Embed.key == key))
+    site = db.get(Site, e.site_id) if e else None
+    owner = db.get(User, e.owner_id) if e else None
+    if not e or not site or not owner:
+        raise HTTPException(404, "This chatbot isn't available.")
+    if preview:
+        viewer = optional_user(request, db)
+        if not viewer or (viewer.id != owner.id and viewer.role != "admin"):
+            raise HTTPException(403, "Sign in to SiteBot to preview this chatbot.")
+        return e, site, owner
+    if e.status != "approved" or not e.enabled or site.generation == 0:
+        raise HTTPException(404, "This chatbot isn't available right now.")
+    if not origin_allowed(site, origin):
+        raise HTTPException(403, f"This chatbot only works on {site.domain}.")
+    return e, site, owner
+
+
+def visitor_chat(db: Session, e: Embed, visitor_id: str) -> Chat | None:
+    return db.scalar(
+        select(Chat).where(Chat.embed_id == e.id, Chat.visitor_id == visitor_id).order_by(Chat.id.desc()).limit(1)
+    )
+
+
+def limit_reads(request: Request) -> None:
+    require_same_origin(request)
+    if not read_limiter.allow(client_ip(request)):
+        raise HTTPException(429, "Too many requests. Please wait a moment.")
+
+
+@app.get("/api/public/{key}/config")
+def widget_config(key: str, request: Request, origin: str = "", preview: bool = False, db: Session = Depends(get_db)):
+    limit_reads(request)
+    e, site, owner = live_embed(db, request, key, origin, preview)
+    return {
+        "name": site.name, "domain": site.domain, "favicon": site.favicon,
+        "color": e.color, "position": e.position,
+        "greeting": e.greeting or f"Hi, welcome to {site.name}! Ask me anything about {site.name}.",
+        "suggestions": get_suggestions(db, site, owner)[:4],
+    }
+
+
+@app.get("/api/public/{key}/messages")
+def widget_history(
+    key: str, request: Request, visitor_id: str, origin: str = "", preview: bool = False, db: Session = Depends(get_db)
+):
+    limit_reads(request)
+    check_visitor(visitor_id)
+    e, _, _ = live_embed(db, request, key, origin, preview)
+    chat = visitor_chat(db, e, visitor_id)
+    return messages_out(db, chat.id) if chat else []
+
+
+@app.post("/api/public/{key}/messages")
+def widget_ask(key: str, body: VisitorAsk, request: Request, db: Session = Depends(get_db)):
+    require_same_origin(request)
+    check_visitor(body.visitor_id)
+    e, site, owner = live_embed(db, request, key, body.origin, body.preview)
+    if not visitor_limiter.allow(f"{e.id}:{body.visitor_id}") or not ip_limiter.allow(client_ip(request)):
+        raise HTTPException(429, "You're sending messages quickly. Please wait a moment and try again.")
+    chat = visitor_chat(db, e, body.visitor_id)
+    if not chat:
+        chat = Chat(user_id=None, site_id=site.id, embed_id=e.id, visitor_id=body.visitor_id)
+        db.add(chat)
+        db.commit()
+    owner_id, chat_id, embed_id, question = owner.id, chat.id, e.id, body.content.strip()
+
+    def gen():
+        sdb = SessionLocal()
+        try:
+            yield from answer_stream(sdb, sdb.get(User, owner_id), sdb.get(Chat, chat_id), question, embed=sdb.get(Embed, embed_id))
         finally:
             sdb.close()
 
@@ -508,6 +694,27 @@ def admin_set_budget(body: BudgetIn, _: User = Depends(admin_user), db: Session 
     return {"global_budget_usd": body.global_budget_usd}
 
 
+@app.get("/api/admin/embeds")
+def admin_embeds(_: User = Depends(admin_user), db: Session = Depends(get_db)):
+    embeds = db.scalars(select(Embed).order_by(Embed.created_at.desc())).all()
+    order = {"pending": 0, "approved": 1, "rejected": 2}
+    embeds = sorted(embeds, key=lambda e: order.get(e.status, 3))
+    return [admin_embed_out(db, e, db.get(Site, e.site_id), db.get(User, e.owner_id)) for e in embeds]
+
+
+@app.patch("/api/admin/embeds/{embed_id}")
+def admin_review_embed(embed_id: int, body: EmbedReview, me: User = Depends(admin_user), db: Session = Depends(get_db)):
+    e = db.get(Embed, embed_id)
+    if not e:
+        raise HTTPException(404, "Embed not found")
+    if body.status is not None and body.status != e.status:
+        e.status, e.reviewed_by, e.reviewed_at = body.status, me.email, utcnow()
+    if body.daily_cap_usd is not None:
+        e.daily_cap_usd = body.daily_cap_usd
+    db.commit()
+    return admin_embed_out(db, e, db.get(Site, e.site_id), db.get(User, e.owner_id))
+
+
 @app.post("/api/admin/sites/{site_id}/reindex")
 def admin_reindex(
     site_id: int, body: ReindexIn | None = None, _: User = Depends(admin_user), db: Session = Depends(get_db)
@@ -543,6 +750,18 @@ def admin_delete_site(site_id: int, _: User = Depends(admin_user), db: Session =
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 if not STATIC_DIR.exists():
     STATIC_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
+@app.get("/widget/{key}", include_in_schema=False)
+def widget_page(key: str, db: Session = Depends(get_db)):
+    """The chat window that embed.js opens in an iframe. Its CSP lets only the bot's own website show it."""
+    e = db.scalar(select(Embed).where(Embed.key == key))
+    site = db.get(Site, e.site_id) if e else None
+    page = STATIC_DIR / "widget.html"
+    if not page.exists():
+        return Response("Frontend not built. Run `npm run build` in frontend/.", media_type="text/plain")
+    csp = frame_ancestors(site) if site else "frame-ancestors 'self'"
+    return FileResponse(page, headers={"Content-Security-Policy": csp, "Cache-Control": "no-cache"})
 
 
 @app.get("/{path:path}", include_in_schema=False)

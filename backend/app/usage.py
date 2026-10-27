@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -47,12 +49,24 @@ def check_budget(db: Session, user: User) -> str | None:
     return None
 
 
-def record_usage(db: Session, user_id: int, kind: str, model: str, usage: dict | None) -> float:
+def embed_spent_today(db: Session, embed_id: int) -> float:
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return float(
+        db.scalar(
+            select(func.coalesce(func.sum(UsageEvent.cost_usd), 0)).where(
+                UsageEvent.embed_id == embed_id, UsageEvent.created_at >= start
+            )
+        )
+    )
+
+
+def record_usage(db: Session, user_id: int, kind: str, model: str, usage: dict | None, embed_id: int | None = None) -> float:
     usage = usage or {}
     cost = float(usage.get("cost") or 0.0)
     db.add(
         UsageEvent(
             user_id=user_id,
+            embed_id=embed_id,
             kind=kind,
             model=model,
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
