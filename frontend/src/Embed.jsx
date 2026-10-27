@@ -181,21 +181,20 @@ function Developers({ embed, onChanged }) {
 
   return (
     <div className="developers">
-      <h3 className="section-title">Build your own chat UI</h3>
       <p className="muted small">
-        Prefer your own design or tech stack? Skip our widget and use the same answers, with sources, from your code. Usage, limits and
-        conversations work the same and show up here. Full reference: <code>docs/API.md</code> in the SiteBot repo.
+        <strong className="dev-lead">Or build your own chat UI.</strong> Prefer your own design or tech stack? Use the same answers, with sources,
+        from your code. Usage, limits and conversations work the same and show up here. Full reference: <code>docs/API.md</code>.
       </p>
       <div className="dev-options">
-        <div>
-          <strong>In the browser</strong>
+        <div className="way">
+          <strong>Your own UI in the browser</strong>
           <p className="muted small">
             Load <code>{base}/sitebot-client.js</code> and call <code>SiteBot.connect({"{"} key: "{embed.key}" {"}"})</code>. It uses your public key, so it only
             works on {embed.site.domain}.
           </p>
         </div>
-        <div>
-          <strong>From your server</strong>
+        <div className="way">
+          <strong>Your own UI through your server</strong>
           <p className="muted small">
             Call the server API with a secret key. Keep it on your server: requests sent from a browser are refused.
           </p>
@@ -376,18 +375,14 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
       )}
       {error && <p className="error">{error}</p>}
 
-      <div className="embed-grid">
+      <div className="embed-panes">
+        <div className="embed-pane">
+          <h3 className="pane-title">Our chat widget</h3>
+          <p className="muted small">A ready-made chat bubble for your website. Style it here; the preview shows what visitors see once you save.</p>
+          <div className="widget-editor">
         <div className="embed-settings">
-          <h3 className="section-title">1. Add this code to your website</h3>
-          <p className="muted small">Paste it just before &lt;/body&gt; on every page where the chat should appear.</p>
-          <div className="snippet">
-            <code>{snippet}</code>
-            <button className="btn small" onClick={copy}>
-              {copied ? "Copied ✓" : "Copy"}
-            </button>
-          </div>
 
-          <h3 className="section-title">2. Make it yours</h3>
+          
           <div className="embed-fields">
             <label className="field">
               <span>Colour</span>
@@ -472,7 +467,32 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
           <button className="btn primary small" disabled={!dirty} onClick={save}>
             Save changes
           </button>
+        </div>
 
+        <div className="embed-preview">
+          <div className="preview-label muted small">Preview{dirty ? " (save to update)" : ""}</div>
+          <iframe key={`${embed.key}-${previewRev}`} title="Chat preview" src={`/widget/${embed.key}?preview=1`} />
+        </div>
+          </div>
+        </div>
+
+        <div className="embed-pane">
+          <h3 className="pane-title">Add it to your website</h3>
+          <div className="way">
+            <strong>Our widget: one line of code</strong>
+            <p className="muted small">Paste it just before &lt;/body&gt; on every page where the chat should appear.</p>
+            <div className="snippet">
+              <code>{snippet}</code>
+              <button className="btn small" onClick={copy}>
+                {copied ? "Copied ✓" : "Copy"}
+              </button>
+            </div>
+          </div>
+          <Developers embed={embed} onChanged={onChanged} />
+        </div>
+      </div>
+
+      <div className="embed-usage">
           <h3 className="section-title">Usage</h3>
           <p className="muted small">
             Visitors' questions use your credits. Today: {money(embed.spent_today_usd)} of the {money(embed.daily_cap_usd)} daily limit. All
@@ -517,16 +537,9 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
               Remove
             </button>
           </div>
-        </div>
-
-        <div className="embed-preview">
-          <div className="preview-label muted small">Preview{dirty ? " (save to update)" : ""}</div>
-          <iframe key={`${embed.key}-${previewRev}`} title="Chat preview" src={`/widget/${embed.key}?preview=1`} />
-        </div>
       </div>
 
       {showChats && <Conversations embed={embed} />}
-      <Developers embed={embed} onChanged={onChanged} />
       {confirmDialog}
     </section>
   );
@@ -534,64 +547,86 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
 
 export default function EmbedPage({ me, sites }) {
   const [embeds, setEmbeds] = useState(null);
-  const [siteId, setSiteId] = useState("");
+  const [siteId, setSiteId] = useState(null);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const load = useCallback(() => api.get("/api/embeds").then(setEmbeds).catch((e) => setError(e.message)), []);
   useEffect(() => {
     load();
   }, [load]);
 
-  const taken = new Set((embeds || []).map((e) => e.site_id));
-  const eligible = sites.filter((s) => s.ready && (s.created_by === me.id || me.role === "admin") && !taken.has(s.id));
+  // Pick a bot first: the ones already on a website, then the others you can add.
+  const embedBySite = Object.fromEntries((embeds || []).map((e) => [e.site_id, e]));
+  const choices = sites
+    .filter((s) => embedBySite[s.id] || (s.ready && (s.created_by === me.id || me.role === "admin")))
+    .sort((a, b) => !!embedBySite[b.id] - !!embedBySite[a.id] || a.name.localeCompare(b.name));
+  const selected = siteId ?? (embeds?.[0]?.site_id || "");
+  const embed = embedBySite[selected];
+  const site = sites.find((s) => s.id === Number(selected));
 
-  const request = async (e) => {
-    e.preventDefault();
+  const request = async () => {
     setError("");
+    setBusy(true);
     try {
-      const created = await api.post("/api/embeds", { site_id: Number(siteId) });
+      const created = await api.post("/api/embeds", { site_id: Number(selected) });
       setEmbeds((list) => [created, ...(list || [])]);
-      setSiteId("");
     } catch (err) {
       setError(err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <div className="page embed-page">
-      <div className="dash-head">
-        <h1>Add a chatbot to your website</h1>
-        <p className="muted">
-          Put one of your chatbots on its own website. Visitors get a chat bubble that answers from your pages, with sources. It only
-          works on that website, and an admin approves it first.
-        </p>
+    <div className="page wide embed-page">
+      <div className="page-head">
+        <div>
+          <h1>Add a chatbot to your website</h1>
+          <p className="muted">Pick a chatbot, then use our chat widget or build your own UI. It only works on that bot's website, and an admin approves it first.</p>
+        </div>
+        <label className="bot-picker">
+          <span className="muted small">Chatbot</span>
+          <select value={selected} onChange={(e) => setSiteId(Number(e.target.value) || "")} aria-label="Chatbot">
+            <option value="">{choices.length ? "Choose one of your chatbots" : "No chatbots to add yet"}</option>
+            {choices.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} Chatbot ({s.domain}){embedBySite[s.id] ? ` · ${STATUS[embedBySite[s.id].status]?.label || ""}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
-
-      <form className="add-form compact" onSubmit={request}>
-        <select value={siteId} onChange={(e) => setSiteId(e.target.value)} required aria-label="Chatbot">
-          <option value="">{eligible.length ? "Choose one of your chatbots" : "No chatbots to add"}</option>
-          {eligible.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} Chatbot ({s.domain})
-            </option>
-          ))}
-        </select>
-        <button className="btn primary" disabled={!siteId}>
-          {me.role === "admin" ? "Add to website" : "Request"}
-        </button>
-      </form>
-      {!eligible.length && embeds && !embeds.length && (
-        <p className="muted small">You can add chatbots you created. Create one for your website first, then come back here.</p>
-      )}
       {error && <p className="error">{error}</p>}
+      {embeds && !choices.length && (
+        <p className="muted">You can add chatbots you created. Create one for your website first with + New chatbot, then come back here.</p>
+      )}
 
-      {(embeds || []).map((e) => (
+      {embed ? (
         <EmbedCard
-          key={e.id}
-          embed={e}
+          key={embed.id}
+          embed={embed}
           onChanged={(updated) => setEmbeds((list) => list.map((x) => (x.id === updated.id ? updated : x)))}
-          onRemoved={(id) => setEmbeds((list) => list.filter((x) => x.id !== id))}
+          onRemoved={(id) => {
+            setEmbeds((list) => list.filter((x) => x.id !== id));
+            setSiteId("");
+          }}
         />
-      ))}
+      ) : (
+        site && (
+          <section className="embed-card embed-start">
+            <BotIcon site={site} size={40} />
+            <div>
+              <h2>{site.name} Chatbot isn't on a website yet</h2>
+              <p className="muted small">
+                It will only work on {site.domain} and its subdomains. {me.role === "admin" ? "As an admin, yours is approved straight away." : "An admin approves it before it answers visitors; you can set it up meanwhile."}
+              </p>
+            </div>
+            <button className="btn primary" disabled={busy} onClick={request}>
+              {me.role === "admin" ? "Add to website" : "Request"}
+            </button>
+          </section>
+        )
+      )}
     </div>
   );
 }
