@@ -169,6 +169,8 @@ class Embed(Base):
     # pending | approved | rejected. Only approved embeds answer visitors.
     status: Mapped[str] = mapped_column(String(20), default="pending")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # On: only the bot's own domain (and subdomains) may use it. Only an admin can turn this off.
+    restrict_to_domain: Mapped[bool] = mapped_column(Boolean, default=True)
     color: Mapped[str] = mapped_column(String(20), default="#2563eb")
     greeting: Mapped[str] = mapped_column(Text, default="")
     position: Mapped[str] = mapped_column(String(10), default="right")  # right | left
@@ -193,6 +195,8 @@ class Chat(Base):
     site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"), index=True)
     embed_id: Mapped[int | None] = mapped_column(ForeignKey("embeds.id", ondelete="CASCADE"), index=True, nullable=True)
     visitor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The website a visitor's chat happened on, so owners can see where their bot is used.
+    origin: Mapped[str] = mapped_column(String(300), default="")
     title: Mapped[str] = mapped_column(String(200), default="New chat")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

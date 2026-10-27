@@ -43,7 +43,7 @@ The Embed page sets the colour, position, theme (light, dark or auto), font, cor
 </script>
 ```
 
-- It only works on the bot's own domain, `www.` and its subdomains, over HTTPS. The browser's `Origin` header is checked on every call.
+- It only works on the bot's own domain, `www.` and its subdomains, over HTTPS. The browser's `Origin` header is checked on every call. An admin can switch off "Only allow on <domain>" for an embed; then any HTTPS website may use it, the widget included.
 - `SiteBot.connect` options:
   - `key` (required).
   - `host`: defaults to where the script was loaded from.

@@ -71,6 +71,8 @@ def init_db() -> None:
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_hash VARCHAR(64) UNIQUE"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_hint VARCHAR(12) NOT NULL DEFAULT ''"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_created_at TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS restrict_to_domain BOOLEAN NOT NULL DEFAULT true"))
+        conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS origin VARCHAR(300) NOT NULL DEFAULT ''"))
     with engine.begin() as conn:
         # A crawl that was running when the server stopped can never finish; mark it so it can be retried.
         conn.execute(

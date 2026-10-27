@@ -20,7 +20,7 @@ from .crawler import Crawler, CrawlError, normalize_input_url
 from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .embeds import (
-    admin_embed_out, check_visitor, client_ip, effective_origin, embed_out, hash_secret, ip_limiter, is_cross_site,
+    admin_embed_out, check_visitor, clean_origin, client_ip, effective_origin, embed_out, hash_secret, ip_limiter, is_cross_site,
     new_key, new_secret, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
 from .ingest import is_running, request_stop, start_ingestion
@@ -491,6 +491,11 @@ def request_embed(body: EmbedIn, user: User = Depends(current_user), db: Session
 @app.patch("/api/embeds/{embed_id}")
 def update_embed(embed_id: int, body: EmbedUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
     e = own_embed(db, embed_id, user)
+    if body.restrict_to_domain is not None:
+        # Lifting the domain lock lets any website spend the owner's credits, so it's an admin's call.
+        if user.role != "admin":
+            raise HTTPException(403, "Only an admin can change which websites may use this chatbot.")
+        e.restrict_to_domain = body.restrict_to_domain
     for field in ("color", "greeting", "position", "enabled"):
         value = getattr(body, field)
         if value is not None:
@@ -551,7 +556,7 @@ def embed_chats(embed_id: int, user: User = Depends(current_user), db: Session =
         .where(Chat.embed_id == e.id).order_by(Chat.updated_at.desc()).limit(200)
     ).all()
     return [
-        {"id": c.id, "title": c.title, "visitor": (c.visitor_id or "")[:6], "messages": n, "updated_at": c.updated_at.isoformat()}
+        {"id": c.id, "title": c.title, "visitor": (c.visitor_id or "")[:6], "origin": c.origin, "messages": n, "updated_at": c.updated_at.isoformat()}
         for c, n in rows
     ]
 
@@ -637,8 +642,9 @@ def live_embed(db: Session, request: Request, key: str, origin: str, preview: bo
             raise HTTPException(403, "Sign in to SiteBot to preview this chatbot.")
         return e, site, owner
     ready_or_unavailable(e, site)
-    if not origin_allowed(site, effective_origin(request, origin)):
-        raise HTTPException(403, f"This chatbot only works on {site.domain}.")
+    if not origin_allowed(e, site, effective_origin(request, origin)):
+        where = site.domain if e.restrict_to_domain else "secure (https) websites"
+        raise HTTPException(403, f"This chatbot only works on {where}.")
     return e, site, owner
 
 
@@ -683,7 +689,9 @@ def widget_ask(key: str, body: VisitorAsk, request: Request, db: Session = Depen
     if not chat:
         chat = Chat(user_id=None, site_id=site.id, embed_id=e.id, visitor_id=body.visitor_id)
         db.add(chat)
-        db.commit()
+    # Where the visitor is chatting from, so owners can see which websites use their bot.
+    chat.origin = "SiteBot preview" if body.preview and not is_cross_site(request) else clean_origin(effective_origin(request, body.origin))
+    db.commit()
     return ndjson(visitor_events(owner.id, chat.id, e.id, body.content.strip()))
 
 
@@ -895,6 +903,8 @@ def admin_review_embed(embed_id: int, body: EmbedReview, me: User = Depends(admi
         e.status, e.reviewed_by, e.reviewed_at = body.status, me.email, utcnow()
     if body.daily_cap_usd is not None:
         e.daily_cap_usd = body.daily_cap_usd
+    if body.restrict_to_domain is not None:
+        e.restrict_to_domain = body.restrict_to_domain
     db.commit()
     return admin_embed_out(db, e, db.get(Site, e.site_id), db.get(User, e.owner_id))
 
@@ -944,7 +954,7 @@ def widget_page(key: str, db: Session = Depends(get_db)):
     page = STATIC_DIR / "widget.html"
     if not page.exists():
         return Response("Frontend not built. Run `npm run build` in frontend/.", media_type="text/plain")
-    return FileResponse(page, headers={"Content-Security-Policy": widget_csp(site), "Cache-Control": "no-cache"})
+    return FileResponse(page, headers={"Content-Security-Policy": widget_csp(e, site), "Cache-Control": "no-cache"})
 
 
 @app.get("/{path:path}", include_in_schema=False)

@@ -2802,3 +2802,20 @@ td select {
 .embed-fields .field {
   min-width: 140px;
 }
+.domain-lock {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.warn-note {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+.warn-text {
+  color: var(--warn);
+  margin-top: 4px;
+}
