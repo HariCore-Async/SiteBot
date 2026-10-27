@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar.jsx";
 import AddSite from "./AddSite.jsx";
 import ChatView from "./ChatView.jsx";
 import Admin from "./Admin.jsx";
+import BotsPage from "./BotsPage.jsx";
 import Dashboard from "./Dashboard.jsx";
 import EmbedPage from "./Embed.jsx";
 import Settings from "./Settings.jsx";
@@ -117,7 +118,7 @@ export default function App() {
     const rest = panes.filter((id) => id !== siteId);
     setPanes(rest);
     setActivePane(0);
-    if (view.type === "chat" && !rest.length) setView({ type: "home" });
+    if (view.type === "chat" && !rest.length) setView({ type: "bots" });
     refreshSites();
     refreshChats();
   };
@@ -126,10 +127,18 @@ export default function App() {
     const rest = panes.filter((id) => id !== siteId);
     setPanes(rest);
     setActivePane(0);
-    if (!rest.length) setView({ type: "home" });
+    if (!rest.length) setView({ type: "bots" });
   };
 
   const siteById = useMemo(() => Object.fromEntries(sites.map((s) => [s.id, s])), [sites]);
+  // Your chatbots: ones you added or chatted with, most recently used first (same list as the side panel).
+  const myBots = useMemo(() => {
+    const lastUsed = {};
+    for (const c of chats) if (!lastUsed[c.site_id] || c.updated_at > lastUsed[c.site_id]) lastUsed[c.site_id] = c.updated_at;
+    return sites
+      .filter((s) => !s.hidden && (s.created_by === me?.id || lastUsed[s.id]))
+      .sort((a, b) => (lastUsed[b.id] || "").localeCompare(lastUsed[a.id] || "") || a.name.localeCompare(b.name));
+  }, [sites, chats, me]);
 
   if (me === undefined || !config) return <div className="splash">Loading…</div>;
   if (!me) return <Login config={config} onLogin={onLogin} />;
@@ -200,19 +209,17 @@ export default function App() {
         onChat={openBot}
       />
     );
-  } else {
-    const usedSites = new Set(chats.map((c) => c.site_id));
-    const myBots = sites.filter((s) => s.ready && !s.hidden && (s.created_by === me.id || usedSites.has(s.id)));
+  } else if (view.type === "bots") {
     main = (
-      <Dashboard
-        me={me}
-        myBots={myBots}
+      <BotsPage
+        mine={myBots}
         library={sites.filter((s) => s.ready).sort((a, b) => a.name.localeCompare(b.name))}
-        onCreate={() => go({ type: "add" })}
-        onEmbed={() => go({ type: "embed" })}
-        onChat={openBot}
+        onOpen={(s) => (s.ready ? openBot(s.id) : go({ type: "progress", siteId: s.id }))}
+        onRemove={removeBot}
       />
     );
+  } else {
+    main = <Dashboard me={me} onChatWithBot={() => go({ type: "bots" })} onEmbed={() => go({ type: "embed" })} />;
   }
 
   return (

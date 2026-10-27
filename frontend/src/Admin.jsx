@@ -447,7 +447,7 @@ export default function Admin({ me, sites, refreshSites, onUsageChange }) {
   const [tab, setTab] = useState("Users");
   return (
     <div className="page admin">
-      <h1>Admin</h1>
+      <h1>Admin console</h1>
       <div className="tabs" role="tablist">
         {TABS.map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>

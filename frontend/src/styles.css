@@ -2585,3 +2585,220 @@ td select {
     grid-template-columns: 1fr;
   }
 }
+/* ---------- Full-width pages (Chat with a bot, Add to your website, Home) ---------- */
+.page.wide {
+  padding: 40px clamp(20px, 3vw, 48px) 32px;
+}
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.page-head h1 {
+  font-size: 28px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+.page-head p {
+  margin: 0;
+  max-width: 760px;
+}
+.bots-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.bots-toolbar .tabs {
+  margin: 0;
+  flex: 1;
+}
+.tab .count {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.bots-page .bot-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+.bot-card {
+  position: relative;
+}
+.bot-card .status {
+  display: block;
+  width: fit-content;
+  margin-top: 2px;
+}
+.card-remove {
+  opacity: 0;
+  margin: -6px -6px -6px 0;
+}
+.bot-card:hover .card-remove,
+.card-remove:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .card-remove {
+    opacity: 1;
+  }
+}
+.pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  margin-top: 16px;
+}
+.pager-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.pager-btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.pager-btn.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.pager-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pager-gap {
+  padding: 0 4px;
+  color: var(--muted);
+}
+.inside-link {
+  margin: 8px 8px 0;
+  width: calc(100% - 16px);
+}
+.sidebar .side-nav + .bot-list {
+  border-top: 0;
+}
+
+/* Add to your website: pick a bot, then the widget (left) and the other ways to add it (right). */
+.bot-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: min(360px, 100%);
+}
+.bot-picker select {
+  height: 42px;
+}
+.embed-page .embed-card {
+  margin-top: 0;
+}
+.embed-start {
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.embed-start > div {
+  flex: 1;
+  min-width: 240px;
+}
+.embed-start h2 {
+  font-size: 17px;
+}
+.embed-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.embed-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  min-width: 0;
+}
+.pane-title {
+  font-size: 16px;
+}
+.widget-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 18px;
+  align-items: start;
+}
+.widget-editor .embed-preview {
+  position: sticky;
+  top: 12px;
+}
+.way {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.embed-pane .developers {
+  border-top: 0;
+  padding-top: 4px;
+}
+.embed-pane .dev-options {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.embed-pane .dev-options > div {
+  padding: 12px 14px;
+}
+.dev-lead {
+  color: var(--text);
+}
+.embed-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@media (max-width: 1500px) {
+  .widget-editor {
+    grid-template-columns: 1fr;
+  }
+  .widget-editor .embed-preview {
+    position: static;
+  }
+}
+@media (max-width: 1100px) {
+  .embed-panes {
+    grid-template-columns: 1fr;
+  }
+  .widget-editor {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  }
+}
+@media (max-width: 700px) {
+  .widget-editor {
+    grid-template-columns: 1fr;
+  }
+  .page.wide {
+    padding: 64px 16px 24px;
+  }
+}
+.embed-fields {
+  flex-wrap: wrap;
+}
+.embed-fields .field {
+  min-width: 140px;
+}

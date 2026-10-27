@@ -1,6 +1,6 @@
 import { useState } from "react";
 import ThemeToggle from "./ThemeToggle.jsx";
-import { CodeIcon, HelpIcon, HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from "./Icons.jsx";
+import { ChatIcon, HelpIcon, HomeIcon, LogOutIcon, LogoMark, PlusIcon, SearchIcon, SettingsIcon, TrashIcon, UserIcon } from "./Icons.jsx";
 import { useConfirm } from "./Confirm.jsx";
 import { money } from "./api.js";
 
@@ -89,6 +89,7 @@ const STATUS_LABEL = { queued: "Queued", crawling: "Reading", embedding: "Learni
 export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go, openBot, onRemoveBot, logout }) {
   const [confirmAsk, confirmDialog] = useConfirm();
   const [query, setQuery] = useState("");
+  const insideBots = ["bots", "chat", "progress"].includes(view.type);
   const chatsBySite = {};
   for (const c of chats) (chatsBySite[c.site_id] ||= []).push(c);
 
@@ -119,11 +120,22 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
         <button className={`side-link ${view.type === "add" ? "active" : ""}`} onClick={() => go({ type: "add" })}>
           <PlusIcon size={17} /> New chatbot
         </button>
-        <button className={`side-link ${view.type === "embed" ? "active" : ""}`} onClick={() => go({ type: "embed" })}>
-          <CodeIcon size={17} /> Add to your website
+        <button className={`side-link ${view.type === "settings" ? "active" : ""}`} onClick={() => go({ type: "settings" })}>
+          <UserIcon /> Settings
         </button>
+        {me.role === "admin" && (
+          <button className={`side-link ${view.type === "admin" ? "active" : ""}`} onClick={() => go({ type: "admin" })}>
+            <SettingsIcon /> Admin console
+          </button>
+        )}
       </nav>
 
+      {/* Your chatbots only appear once you're inside Chat with a bot (its page and its chats). */}
+      {insideBots ? (
+        <>
+      <button className={`side-link inside-link ${view.type === "bots" ? "active" : ""}`} onClick={() => go({ type: "bots" })}>
+        <ChatIcon /> Chat with a bot
+      </button>
       <div className="bot-search">
         <SearchIcon />
         <input type="search" placeholder="Search your chatbots" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search chatbots" />
@@ -157,14 +169,14 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
                 {!q && s.ready && (
                   <button
                     className="icon-btn row-action"
-                    title="Remove from your chatbots"
-                    aria-label={`Remove ${s.name} Chatbot from your chatbots`}
+                    title="Remove from your list"
+                    aria-label={`Remove ${s.name} Chatbot from your list`}
                     onClick={async (e) => {
                       e.stopPropagation();
                       const ok = await confirmAsk({
-                        title: `Remove ${s.name} Chatbot?`,
-                        message: "It will disappear from your chatbots and your conversation with it will be deleted. You can add it back any time by searching for it.",
-                        confirmLabel: "Remove",
+                        title: `Remove ${s.name} Chatbot from your list?`,
+                        message: "It disappears from your chatbots and your conversation with it is deleted. It stays in the Library, so you can add it back any time.",
+                        confirmLabel: "Remove from your list",
                         danger: true,
                       });
                       if (ok) onRemoveBot(s.id);
@@ -179,6 +191,10 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
           );
         })}
       </div>
+        </>
+      ) : (
+        <div className="bot-list" />
+      )}
 
       <div className="sidebar-foot">
         <button className={`side-link ${view.type === "support" ? "active" : ""}`} onClick={() => go({ type: "support" })}>
@@ -191,24 +207,6 @@ export default function Sidebar({ me, sites, chats, usage, view, openSiteIds, go
             <div className="me-name">{me.name}</div>
             <div className="me-role">{me.role}</div>
           </div>
-          <button
-            className={`icon-btn ${view.type === "settings" ? "active" : ""}`}
-            onClick={() => go({ type: "settings" })}
-            title="Your settings"
-            aria-label="Your settings"
-          >
-            <UserIcon />
-          </button>
-          {me.role === "admin" && (
-            <button
-              className={`icon-btn ${view.type === "admin" ? "active" : ""}`}
-              onClick={() => go({ type: "admin" })}
-              title="Admin settings"
-              aria-label="Admin settings"
-            >
-              <SettingsIcon />
-            </button>
-          )}
           <button className="icon-btn" onClick={logout} title="Sign out" aria-label="Sign out">
             <LogOutIcon />
           </button>
