@@ -265,7 +265,7 @@ function Conversations({ embed }) {
             <button className={`convo-row ${openId === c.id ? "active" : ""}`} onClick={() => setOpenId(c.id)}>
               <span className="convo-title">{c.title}</span>
               <span className="muted small">
-                Visitor {c.visitor} · {plural(c.messages, "message")} · {timeAgo(c.updated_at)}
+                Visitor {c.visitor}{c.origin ? ` on ${c.origin.replace(/^https?:\/\//, "")}` : ""} · {plural(c.messages, "message")} · {timeAgo(c.updated_at)}
               </span>
             </button>
           </li>
@@ -300,7 +300,7 @@ function Conversations({ embed }) {
   );
 }
 
-function EmbedCard({ embed, onChanged, onRemoved }) {
+function EmbedCard({ embed, me, onChanged, onRemoved }) {
   const [confirmAsk, confirmDialog] = useConfirm();
   const [draft, setDraft] = useState(draftOf(embed));
   const [previewRev, setPreviewRev] = useState(0);
@@ -345,7 +345,7 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
         <BotIcon site={embed.site} size={32} />
         <div className="embed-card-meta">
           <h2>{embed.site.name} Chatbot</h2>
-          <span className="muted small">Works on {embed.site.domain} and its subdomains</span>
+          <span className="muted small">{embed.restrict_to_domain ? `Works on ${embed.site.domain} and its subdomains` : "Works on any website"}</span>
         </div>
         <span className={`status ${status.cls}`}>{status.label}</span>
         {embed.status === "approved" && (
@@ -372,6 +372,42 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
             Ask again
           </button>
         </p>
+      )}
+      <div className="setting-row domain-lock">
+        <div>
+          <strong>Only allow on {embed.site.domain}</strong>
+          <p className="muted small">
+            {embed.restrict_to_domain
+              ? `On: it works only on ${embed.site.domain} and its subdomains.`
+              : "Off: any secure (https) website can use this chatbot."}
+            {me.role !== "admin" && " Only an admin can change this."}
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={embed.restrict_to_domain}
+          aria-label={`Only allow on ${embed.site.domain}`}
+          className={`switch ${embed.restrict_to_domain ? "on" : ""}`}
+          disabled={me.role !== "admin"}
+          title={me.role !== "admin" ? "Only an admin can change this" : ""}
+          onClick={async () => {
+            if (embed.restrict_to_domain) {
+              const ok = await confirmAsk({
+                title: "Let any website use this chatbot?",
+                message: "Any website can use this bot, and every question is charged to the owner's credits. Limits and the daily cap still apply.",
+                confirmLabel: "Allow any website",
+                danger: true,
+              });
+              if (!ok) return;
+            }
+            act(() => api.patch(`/api/embeds/${embed.id}`, { restrict_to_domain: !embed.restrict_to_domain }));
+          }}
+        >
+          <span />
+        </button>
+      </div>
+      {!embed.restrict_to_domain && (
+        <p className="warn-note">Any website can use this bot, and every question is charged to the owner's credits.</p>
       )}
       {error && <p className="error">{error}</p>}
 
@@ -605,6 +641,7 @@ export default function EmbedPage({ me, sites }) {
         <EmbedCard
           key={embed.id}
           embed={embed}
+          me={me}
           onChanged={(updated) => setEmbeds((list) => list.map((x) => (x.id === updated.id ? updated : x)))}
           onRemoved={(id) => {
             setEmbeds((list) => list.filter((x) => x.id !== id));

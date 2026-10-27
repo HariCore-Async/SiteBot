@@ -52,27 +52,36 @@ def style_of(e: Embed) -> dict:
     return {**STYLE_DEFAULTS, **(e.style or {})}
 
 
-def origin_allowed(site: Site, origin: str) -> bool:
-    """A bot runs only on its own website: the domain itself, www. and any subdomain, over HTTPS."""
-    origin = (origin or "").strip().rstrip("/").lower()
+def clean_origin(origin: str) -> str:
+    return (origin or "").strip().rstrip("/").lower()[:300]
+
+
+def origin_allowed(e: Embed, site: Site, origin: str) -> bool:
+    """By default a bot runs only on its own website: the domain itself, www. and any subdomain, over HTTPS.
+    An admin can lift that for one embed (restrict_to_domain off); then any HTTPS website may use it."""
+    origin = clean_origin(origin)
     if origin in settings.embed_dev_origin_list:
         return True
     p = urlparse(origin)
     host = (p.hostname or "").rstrip(".")
-    return p.scheme == "https" and (host == site.domain or host.endswith("." + site.domain))
+    if p.scheme != "https" or not host:
+        return False
+    return not e.restrict_to_domain or host == site.domain or host.endswith("." + site.domain)
 
 
-def frame_ancestors(site: Site) -> str:
+def frame_ancestors(e: Embed, site: Site) -> str:
     """CSP for the widget page, so browsers refuse to show it inside any other website."""
+    if not e.restrict_to_domain:
+        return "frame-ancestors 'self' https: " + " ".join(settings.embed_dev_origin_list)
     sources = ["'self'", f"https://{site.domain}", f"https://*.{site.domain}", *settings.embed_dev_origin_list]
     return "frame-ancestors " + " ".join(sources)
 
 
-def widget_csp(site: Site | None) -> str:
+def widget_csp(e: Embed | None, site: Site | None) -> str:
     """Owners can add custom CSS, so the widget page may load nothing from elsewhere except the bot's favicon."""
     favicon = urlparse(site.favicon or "") if site else None
     img = "'self' data:" + (f" https://{favicon.hostname}" if favicon and favicon.scheme == "https" and favicon.hostname else "")
-    ancestors = frame_ancestors(site) if site else "frame-ancestors 'self'"
+    ancestors = frame_ancestors(e, site) if e and site else "frame-ancestors 'self'"
     return f"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src {img}; connect-src 'self'; {ancestors}"
 
 
@@ -85,16 +94,24 @@ def check_visitor(visitor_id: str) -> str:
 def effective_origin(request: Request, claimed: str) -> str:
     """The website a public-API request is for. Our widget runs on SiteBot's own origin and reports the website it's on;
     sitebot-client.js calls us straight from the website, so the browser's own Origin header is used instead."""
-    if request.headers.get("sec-fetch-site", "same-origin") in ("same-origin", "none"):
-        return claimed
+    fetch_site = request.headers.get("sec-fetch-site")
     origin = request.headers.get("origin")
+    if fetch_site in ("same-origin", "none"):
+        return claimed
+    if fetch_site is None:
+        # Older browsers don't send Sec-Fetch-Site; a call from another website still carries that website's Origin.
+        return origin if origin and urlparse(origin).hostname != request.url.hostname else claimed
     if not origin:
         raise HTTPException(403, "Not allowed.")
     return origin
 
 
 def is_cross_site(request: Request) -> bool:
-    return request.headers.get("sec-fetch-site", "same-origin") not in ("same-origin", "none")
+    fetch_site = request.headers.get("sec-fetch-site")
+    if fetch_site is None:
+        origin = request.headers.get("origin")
+        return bool(origin) and urlparse(origin).hostname != request.url.hostname
+    return fetch_site not in ("same-origin", "none")
 
 
 def server_key_embed(db: Session, request: Request) -> Embed:
@@ -154,7 +171,7 @@ def embed_out(db: Session, e: Embed, site: Site) -> dict:
     return {
         "id": e.id, "key": e.key, "site_id": e.site_id, "status": e.status, "enabled": e.enabled,
         "color": e.color, "greeting": e.greeting, "position": e.position, "daily_cap_usd": e.daily_cap_usd,
-        "style": style_of(e),
+        "style": style_of(e), "restrict_to_domain": e.restrict_to_domain,
         "server_key": {"hint": e.secret_hint, "created_at": e.secret_created_at.isoformat() if e.secret_created_at else None}
         if e.secret_hash else None,
         "feedback": {"up": ratings.get("up", 0), "down": ratings.get("down", 0)},

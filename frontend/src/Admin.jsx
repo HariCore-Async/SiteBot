@@ -335,6 +335,7 @@ const EMBED_STATUS = { pending: ["Waiting", "queued"], approved: ["Approved", "r
 function Embeds() {
   const [embeds, setEmbeds] = useState([]);
   const [caps, setCaps] = useState({});
+  const [confirmAsk, confirmDialog] = useConfirm();
   const [error, setError] = useState("");
   const load = useCallback(() => api.get("/api/admin/embeds").then(setEmbeds).catch((e) => setError(e.message)), []);
   useEffect(() => {
@@ -369,6 +370,7 @@ function Embeds() {
                 <th>Chatbot</th>
                 <th>Owner</th>
                 <th>Status</th>
+                <th>Only own domain</th>
                 <th>Today / daily limit</th>
                 <th>Total</th>
                 <th />
@@ -396,6 +398,29 @@ function Embeds() {
                     <td>
                       <span className={`status ${cls}`}>{label}</span>
                       {e.status === "approved" && !e.enabled && <div className="muted small">Turned off by owner</div>}
+                    </td>
+                    <td>
+                      <button
+                        role="switch"
+                        aria-checked={e.restrict_to_domain}
+                        aria-label={`Only allow ${e.site.name} Chatbot on ${e.site.domain}`}
+                        className={`switch ${e.restrict_to_domain ? "on" : ""}`}
+                        onClick={async () => {
+                          if (e.restrict_to_domain) {
+                            const ok = await confirmAsk({
+                              title: "Let any website use this chatbot?",
+                              message: "Any website can use this bot, and every question is charged to the owner's credits. Limits and the daily cap still apply.",
+                              confirmLabel: "Allow any website",
+                              danger: true,
+                            });
+                            if (!ok) return;
+                          }
+                          review(e, { restrict_to_domain: !e.restrict_to_domain });
+                        }}
+                      >
+                        <span />
+                      </button>
+                      {!e.restrict_to_domain && <div className="warn-text small">Any website</div>}
                     </td>
                     <td>
                       <form
@@ -437,6 +462,7 @@ function Embeds() {
           </table>
         </div>
       )}
+      {confirmDialog}
     </section>
   );
 }

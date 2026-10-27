@@ -108,11 +108,13 @@ class EmbedUpdate(BaseModel):
     position: str | None = Field(default=None, pattern="^(right|left)$")
     enabled: bool | None = None
     style: EmbedStyle | None = None
+    restrict_to_domain: bool | None = None  # admins only
 
 
 class EmbedReview(BaseModel):
     status: str | None = Field(default=None, pattern="^(approved|rejected|pending)$")
     daily_cap_usd: float | None = Field(default=None, ge=0, le=1000)
+    restrict_to_domain: bool | None = None
 
 
 class VisitorAsk(BaseModel):
