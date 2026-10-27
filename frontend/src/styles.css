@@ -2496,3 +2496,92 @@ td select {
     grid-template-columns: 1fr;
   }
 }
+.custom-css summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.custom-css[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.custom-css textarea {
+  width: 100%;
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: vertical;
+}
+.field input[type="range"] {
+  height: auto;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.developers {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.developers p {
+  margin: 0;
+}
+.developers code,
+.custom-css code {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--subtle);
+  padding: 1px 5px;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+.dev-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.dev-options > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.secret-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+.code-tabs {
+  margin-top: 4px;
+}
+.code-block {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--subtle);
+}
+.code-block pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  max-height: 420px;
+}
+.code-block pre code {
+  font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: none;
+  padding: 0;
+}
+.code-block > .btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+@media (max-width: 900px) {
+  .dev-options {
+    grid-template-columns: 1fr;
+  }
+}

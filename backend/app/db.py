@@ -67,6 +67,10 @@ def init_db() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_embed_id ON chats (embed_id)"))
         conn.execute(text("ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS embed_id INTEGER REFERENCES embeds(id) ON DELETE SET NULL"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_usage_events_embed_id ON usage_events (embed_id)"))
+        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS style JSON"))
+        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_hash VARCHAR(64) UNIQUE"))
+        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_hint VARCHAR(12) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_created_at TIMESTAMPTZ"))
     with engine.begin() as conn:
         # A crawl that was running when the server stopped can never finish; mark it so it can be retried.
         conn.execute(

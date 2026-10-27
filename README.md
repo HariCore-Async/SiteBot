@@ -40,6 +40,8 @@ Home → **Add a chatbot to your website** (or the sidebar's **Add to your websi
 - **Domain lock:** a bot only shows on its own domain, `www.` and subdomains, over HTTPS. The widget page sends a `Content-Security-Policy: frame-ancestors` header for that domain, so browsers refuse to show it anywhere else, and the public API also checks the website it reports.
 - **Cost:** visitors' questions are charged to the owner's credits (their normal limit and the global budget still apply), plus a per-embed daily limit (`EMBED_DAILY_CAP_USD`, editable per embed in Admin). When a limit is reached, visitors see a polite "taking a short break" message. Each visitor is limited to 6 questions a minute (60 an hour), and each network address to 20 a minute (300 a day).
 - **Visitors** are anonymous: a random id in their browser keeps their conversation. Owners can read their visitors' conversations on the embed page.
+- **Your own UI:** instead of the widget, use `sitebot-client.js` in the browser (public key, same domain lock) or the server API at `/api/v1` with a secret `sk_` key from the Embed page. See [docs/API.md](docs/API.md).
+- **Styling:** theme (light, dark or auto), font, corner rounding, header title, launcher icon and label, and custom CSS, which applies only inside the widget and has imports and `url()` removed.
 - **Testing locally:** a bot's real domain isn't `localhost`, so set `EMBED_DEV_ORIGINS=http://localhost:5500` for the backend, put the snippet (with `src="http://localhost:8000/embed.js"`) in a plain HTML page, serve it with `python -m http.server 5500`, and run `npm run build` so the backend serves the widget. Never set `EMBED_DEV_ORIGINS` on Railway.
 
 ## Run locally

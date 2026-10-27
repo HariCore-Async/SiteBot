@@ -58,11 +58,45 @@ function Avatar({ cfg, size = 30 }) {
   );
 }
 
-const ChatIcon = () => (
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z" />
+const icon = (d, size = 26) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={d} />
   </svg>
 );
+const LAUNCHER_ICONS = {
+  chat: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z",
+  help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01",
+  sparkle: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z",
+};
+const FONTS = {
+  system: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  sans: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+  serif: 'Georgia, Cambria, "Times New Roman", serif',
+  rounded: 'ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, sans-serif',
+  mono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+};
+const ThumbIcon = ({ down }) => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={down ? { transform: "rotate(180deg)" } : undefined}>
+    <path d="M7 10v11M15 5.9 14 10h5.8a2 2 0 0 1 2 2.3l-1.4 7A2 2 0 0 1 18.4 21H7V10l4-8a3 3 0 0 1 3 3.9z" />
+  </svg>
+);
+
+/** Thumbs up/down under an answer. Owners see the ratings on their Embed page. */
+function Rate({ m, onRate }) {
+  if (!m.id || m.pending) return null;
+  const rating = m.feedback?.rating;
+  return (
+    <div className="w-rate">
+      <button className={rating === "up" ? "on" : ""} aria-label="Helpful" aria-pressed={rating === "up"} onClick={() => onRate(m, "up")}>
+        <ThumbIcon />
+      </button>
+      <button className={rating === "down" ? "on" : ""} aria-label="Not helpful" aria-pressed={rating === "down"} onClick={() => onRate(m, "down")}>
+        <ThumbIcon down />
+      </button>
+      {rating && <span>Thanks for the feedback</span>}
+    </div>
+  );
+}
 const CloseIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
     <path d="M6 6l12 12M18 6 6 18" />
@@ -85,6 +119,17 @@ export default function Widget() {
   const [error, setError] = useState("");
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
+  const launcherRef = useRef(null);
+  const [dark, setDark] = useState(false);
+  const [full, setFull] = useState(false);
+
+  useEffect(() => {
+    const onMessage = (e) => {
+      if (e.source === window.parent && e.data?.type === "sitebot:layout" && (!ORIGIN || e.origin === ORIGIN)) setFull(!!e.data.full);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   useEffect(() => {
     api
@@ -96,8 +141,34 @@ export default function Widget() {
       });
   }, []);
 
+  // Theme, font and the owner's custom CSS (already sanitised by the server) apply to this iframe's page only.
   useEffect(() => {
-    if (cfg) tellParent({ open, position: cfg.position });
+    if (!cfg) return;
+    const theme = cfg.style?.theme || "light";
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => setDark(theme === "dark" || (theme === "auto" && media.matches));
+    apply();
+    media.addEventListener("change", apply);
+    let tag = document.getElementById("sitebot-custom-css");
+    if (!tag) {
+      tag = document.createElement("style");
+      tag.id = "sitebot-custom-css";
+      document.head.appendChild(tag);
+    }
+    tag.textContent = cfg.style?.custom_css || "";
+    return () => media.removeEventListener("change", apply);
+  }, [cfg]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+  }, [dark]);
+
+  // embed.js sizes the iframe: the launcher's own size while closed, a chat window while open.
+  useEffect(() => {
+    if (!cfg) return;
+    const el = launcherRef.current;
+    const size = !open && el ? { width: Math.ceil(el.offsetWidth) + 24, height: Math.ceil(el.offsetHeight) + 24 } : null;
+    tellParent({ open, position: cfg.position, size });
   }, [cfg, open]);
 
   useEffect(() => {
@@ -122,7 +193,24 @@ export default function Widget() {
     return PREVIEW && unavailable ? <div className="w-unavailable">{unavailable}</div> : null;
   }
 
-  const style = { "--w-accent": cfg.color, "--w-on-accent": onAccent(cfg.color) };
+  const look = cfg.style || {};
+  const style = {
+    "--w-accent": cfg.color,
+    "--w-on-accent": onAccent(cfg.color),
+    "--w-radius": `${look.radius ?? 16}px`,
+    "--w-font": FONTS[look.font] || FONTS.system,
+    fontFamily: "var(--w-font)",
+  };
+  const title = look.title || cfg.name;
+
+  const rate = async (m, rating) => {
+    setMessages((list) => list.map((x) => (x === m ? { ...x, feedback: { rating } } : x)));
+    try {
+      await api.post(`/api/public/${encodeURIComponent(KEY)}/feedback`, { visitor_id: visitorId(), message_id: m.id, rating, origin: ORIGIN });
+    } catch {
+      /* feedback is best-effort */
+    }
+  };
 
   const send = async (text) => {
     const content = (text ?? input).trim();
@@ -139,7 +227,7 @@ export default function Widget() {
         (ev) => {
           if (ev.type === "token") patchLast((last) => ({ ...last, content: last.content + ev.text }));
           else if (ev.type === "replace") patchLast((last) => ({ ...last, content: ev.text }));
-          else if (ev.type === "done") patchLast((last) => ({ ...last, pending: false, sources: ev.sources, grounded: ev.grounded }));
+          else if (ev.type === "done") patchLast((last) => ({ ...last, id: ev.message_id, pending: false, sources: ev.sources, grounded: ev.grounded }));
           else if (ev.type === "error") {
             setMessages((m) => m.filter((x) => !x.pending));
             setError(ev.message);
@@ -164,9 +252,15 @@ export default function Widget() {
 
   if (!open) {
     return (
-      <div className={`w-launcher ${cfg.position}`} style={style}>
-        <button className="w-bubble" onClick={() => setOpen(true)} aria-label={`Chat with ${cfg.name}`} title={`Chat with ${cfg.name}`}>
-          <ChatIcon />
+      <div className={`w-launcher ${cfg.position}`} style={style} ref={launcherRef}>
+        <button
+          className={`w-bubble ${look.launcher_label ? "labelled" : ""}`}
+          onClick={() => setOpen(true)}
+          aria-label={look.launcher_label || `Chat with ${title}`}
+          title={`Chat with ${title}`}
+        >
+          {look.launcher_icon !== "none" && icon(LAUNCHER_ICONS[look.launcher_icon] || LAUNCHER_ICONS.chat, look.launcher_label ? 22 : 26)}
+          {look.launcher_label && <span>{look.launcher_label}</span>}
         </button>
       </div>
     );
@@ -176,11 +270,11 @@ export default function Widget() {
   const suggestions = messages.length ? [] : (cfg.suggestions || []).filter((q) => !asked.has(q.toLowerCase()));
 
   return (
-    <div className={`w-panel ${PREVIEW ? "preview" : ""}`} style={style} role="dialog" aria-label={`${cfg.name} assistant`}>
+    <div className={`w-panel ${PREVIEW ? "preview" : ""} ${full ? "full" : ""}`} style={style} role="dialog" aria-label={`${title} assistant`}>
       <header className="w-head">
         <Avatar cfg={cfg} />
         <div className="w-head-meta">
-          <strong>{cfg.name}</strong>
+          <strong>{title}</strong>
           <span>Answers from {cfg.domain}</span>
         </div>
         {messages.length > 0 && (
@@ -217,6 +311,7 @@ export default function Widget() {
                       {linkCitations(m.content, m.sources)}
                     </ReactMarkdown>
                     {!m.pending && <Sources sources={m.sources} />}
+                    {!PREVIEW && <Rate m={m} onRate={rate} />}
                   </>
                 )
               ) : (

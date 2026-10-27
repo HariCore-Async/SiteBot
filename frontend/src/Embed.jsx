@@ -16,6 +16,234 @@ function snippetFor(key) {
   return `<script src="${location.origin}/embed.js" data-bot="${key}" async></script>`;
 }
 
+const draftOf = (e) => ({ color: e.color, position: e.position, greeting: e.greeting, style: { ...e.style } });
+
+function CopyBox({ text, label = "Copy" }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="snippet">
+      <code>{text}</code>
+      <button
+        className="btn small"
+        onClick={() =>
+          navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          })
+        }
+      >
+        {copied ? "Copied ✓" : label}
+      </button>
+    </div>
+  );
+}
+
+function examples(embed, base) {
+  const sk = "$SITEBOT_SERVER_KEY";
+  return {
+    curl: `# Streams NDJSON events: conversation, user_saved, token..., replace?, done (or error)
+curl -N ${base}/api/v1/messages \\
+  -H "Authorization: Bearer ${sk}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"visitor_id": "user-123", "content": "What do you offer?"}'
+
+# One JSON reply instead of a stream
+curl ${base}/api/v1/messages \\
+  -H "Authorization: Bearer ${sk}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"visitor_id": "user-123", "content": "What do you offer?", "stream": false}'`,
+    node: `// Express route that your own chat UI calls. The sk_ key stays on your server.
+import express from "express";
+const app = express();
+app.use(express.json());
+
+app.post("/chat", async (req, res) => {
+  const r = await fetch("${base}/api/v1/messages", {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${process.env.SITEBOT_SERVER_KEY}\`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      visitor_id: req.user?.id ?? req.ip,      // your own user id keeps their history
+      conversation_id: req.body.conversationId, // optional: continue a conversation
+      content: req.body.message,
+    }),
+  });
+  // Pass the NDJSON stream straight through to your browser code.
+  res.status(r.status).type("application/x-ndjson");
+  for await (const chunk of r.body) res.write(chunk);
+  res.end();
+});
+
+app.listen(3000);`,
+    python: `# pip install requests
+import json, os, requests
+
+def ask(visitor_id, question, conversation_id=None):
+    r = requests.post(
+        "${base}/api/v1/messages",
+        headers={"Authorization": f"Bearer {os.environ['SITEBOT_SERVER_KEY']}"},
+        json={"visitor_id": visitor_id, "content": question,
+              "conversation_id": conversation_id, "stream": False},
+        timeout=60,
+    )
+    r.raise_for_status()
+    return r.json()  # {conversation_id, message_id, answer, sources, grounded}
+
+reply = ask("user-123", "What do you offer?")
+print(reply["answer"])
+for s in reply["sources"]:
+    print(f"[{s['n']}] {s['title']} {s['url']}")`,
+    react: `// In your index.html (or load it once anywhere):
+// <script src="${base}/sitebot-client.js"></script>
+// Works only on ${embed.site.domain}: it uses your public key, no server needed.
+import { useMemo, useState } from "react";
+
+export default function Chat() {
+  const bot = useMemo(() => window.SiteBot.connect({ key: "${embed.key}" }), []);
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState("");
+
+  async function send(e) {
+    e.preventDefault();
+    const question = text;
+    setText("");
+    setMessages((m) => [...m, { role: "user", content: question }, { role: "bot", content: "" }]);
+    const show = (soFar) => setMessages((m) => [...m.slice(0, -1), { role: "bot", content: soFar }]);
+    try {
+      const reply = await bot.ask(question, { onToken: (_, soFar) => show(soFar) });
+      show(reply.answer); // reply.sources = [{ n, title, url }]
+    } catch (err) {
+      show(err.message);
+    }
+  }
+
+  return (
+    <form onSubmit={send}>
+      {messages.map((m, i) => <p key={i}><b>{m.role}:</b> {m.content}</p>)}
+      <input value={text} onChange={(e) => setText(e.target.value)} />
+    </form>
+  );
+}`,
+  };
+}
+
+const EXAMPLE_TABS = [
+  ["curl", "curl"],
+  ["node", "Node / Express"],
+  ["python", "Python"],
+  ["react", "React (browser)"],
+];
+
+function Developers({ embed, onChanged }) {
+  const [confirmAsk, confirmDialog] = useConfirm();
+  const [secret, setSecret] = useState("");
+  const [tab, setTab] = useState("curl");
+  const [error, setError] = useState("");
+  const base = location.origin;
+  const code = examples(embed, base)[tab];
+
+  const makeKey = async () => {
+    if (embed.server_key) {
+      const ok = await confirmAsk({
+        title: "Replace the server key?",
+        message: "The current key stops working straight away. Update it on your server.",
+        confirmLabel: "Replace key",
+      });
+      if (!ok) return;
+    }
+    setError("");
+    try {
+      const res = await api.post(`/api/embeds/${embed.id}/server-key`);
+      setSecret(res.secret);
+      onChanged(res);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const revoke = async () => {
+    const ok = await confirmAsk({
+      title: "Revoke the server key?",
+      message: "Anything using it stops working straight away.",
+      confirmLabel: "Revoke",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      setSecret("");
+      onChanged(await api.del(`/api/embeds/${embed.id}/server-key`));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  return (
+    <div className="developers">
+      <h3 className="section-title">Build your own chat UI</h3>
+      <p className="muted small">
+        Prefer your own design or tech stack? Skip our widget and use the same answers, with sources, from your code. Usage, limits and
+        conversations work the same and show up here. Full reference: <code>docs/API.md</code> in the SiteBot repo.
+      </p>
+      <div className="dev-options">
+        <div>
+          <strong>In the browser</strong>
+          <p className="muted small">
+            Load <code>{base}/sitebot-client.js</code> and call <code>SiteBot.connect({"{"} key: "{embed.key}" {"}"})</code>. It uses your public key, so it only
+            works on {embed.site.domain}.
+          </p>
+        </div>
+        <div>
+          <strong>From your server</strong>
+          <p className="muted small">
+            Call the server API with a secret key. Keep it on your server: requests sent from a browser are refused.
+          </p>
+          {secret ? (
+            <div className="secret-box">
+              <p className="small">
+                <strong>Copy your key now.</strong> It won't be shown again.
+              </p>
+              <CopyBox text={secret} />
+            </div>
+          ) : embed.server_key ? (
+            <p className="small">
+              Server key <code>sk_…{embed.server_key.hint}</code>, created {timeAgo(embed.server_key.created_at)}.
+            </p>
+          ) : null}
+          <div className="embed-actions">
+            <button className="btn small" onClick={makeKey}>
+              {embed.server_key ? "Replace server key" : "Create server key"}
+            </button>
+            {embed.server_key && (
+              <button className="btn ghost small danger" onClick={revoke}>
+                Revoke
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="tabs code-tabs" role="tablist">
+        {EXAMPLE_TABS.map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} className={`tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="code-block">
+        <pre>
+          <code>{code}</code>
+        </pre>
+        <button className="btn small" onClick={() => navigator.clipboard.writeText(code)}>
+          Copy
+        </button>
+      </div>
+      {confirmDialog}
+    </div>
+  );
+}
+
 function Conversations({ embed }) {
   const [chats, setChats] = useState(null);
   const [openId, setOpenId] = useState(null);
@@ -55,6 +283,12 @@ function Conversations({ embed }) {
                     {linkCitations(m.content, m.sources)}
                   </ReactMarkdown>
                   <Sources sources={m.sources} />
+                  {m.feedback && (
+                    <span className={`pill ${m.feedback.rating === "up" ? "accent" : ""}`}>
+                      Visitor rated this {m.feedback.rating === "up" ? "👍 helpful" : "👎 not helpful"}
+                      {m.feedback.comment ? `: "${m.feedback.comment}"` : ""}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <p>{m.content}</p>
@@ -69,13 +303,14 @@ function Conversations({ embed }) {
 
 function EmbedCard({ embed, onChanged, onRemoved }) {
   const [confirmAsk, confirmDialog] = useConfirm();
-  const [draft, setDraft] = useState({ color: embed.color, position: embed.position, greeting: embed.greeting });
+  const [draft, setDraft] = useState(draftOf(embed));
   const [previewRev, setPreviewRev] = useState(0);
   const [copied, setCopied] = useState(false);
   const [showChats, setShowChats] = useState(false);
   const [error, setError] = useState("");
   const status = STATUS[embed.status] || STATUS.pending;
-  const dirty = draft.color !== embed.color || draft.position !== embed.position || draft.greeting !== embed.greeting;
+  const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(embed));
+  const setStyle = (k, v) => setDraft((d) => ({ ...d, style: { ...d.style, [k]: v } }));
   const snippet = snippetFor(embed.key);
 
   const act = async (fn) => {
@@ -91,6 +326,7 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
     act(async () => {
       const updated = await api.patch(`/api/embeds/${embed.id}`, draft);
       setPreviewRev((r) => r + 1);
+      setDraft(draftOf(updated)); // the server may have cleaned up the custom CSS
       return updated;
     });
 
@@ -164,7 +400,50 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
                 <option value="left">Bottom left</option>
               </select>
             </label>
+            <label className="field">
+              <span>Theme</span>
+              <select value={draft.style.theme} onChange={(e) => setStyle("theme", e.target.value)}>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="auto">Match visitor's device</option>
+              </select>
+            </label>
           </div>
+          <div className="embed-fields">
+            <label className="field">
+              <span>Header title</span>
+              <input maxLength={60} placeholder={embed.site.name} value={draft.style.title} onChange={(e) => setStyle("title", e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Font</span>
+              <select value={draft.style.font} onChange={(e) => setStyle("font", e.target.value)}>
+                <option value="system">System</option>
+                <option value="sans">Sans serif</option>
+                <option value="serif">Serif</option>
+                <option value="rounded">Rounded</option>
+                <option value="mono">Monospace</option>
+              </select>
+            </label>
+          </div>
+          <div className="embed-fields">
+            <label className="field">
+              <span>Launcher icon</span>
+              <select value={draft.style.launcher_icon} onChange={(e) => setStyle("launcher_icon", e.target.value)}>
+                <option value="chat">Chat bubble</option>
+                <option value="help">Question mark</option>
+                <option value="sparkle">Sparkle</option>
+                <option value="none">No icon (label only)</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Launcher label</span>
+              <input maxLength={30} placeholder="None (round button)" value={draft.style.launcher_label} onChange={(e) => setStyle("launcher_label", e.target.value)} />
+            </label>
+          </div>
+          <label className="field">
+            <span>Corner rounding: {draft.style.radius}px</span>
+            <input type="range" min="0" max="28" value={draft.style.radius} onChange={(e) => setStyle("radius", Number(e.target.value))} />
+          </label>
           <label className="field">
             <span>Greeting</span>
             <textarea
@@ -175,6 +454,21 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
               onChange={(e) => setDraft((d) => ({ ...d, greeting: e.target.value }))}
             />
           </label>
+          <details className="custom-css">
+            <summary>Custom CSS</summary>
+            <p className="muted small">
+              Applies only inside the chat window. Style classes such as <code>.w-head</code>, <code>.w-bubble</code>, <code>.w-msg.user .w-bubble-text</code>,{" "}
+              <code>.w-suggestion</code> and <code>.w-composer</code>. Imports and <code>url()</code> are removed.
+            </p>
+            <textarea
+              rows={5}
+              maxLength={5000}
+              spellCheck={false}
+              placeholder={".w-head { letter-spacing: 0.02em; }"}
+              value={draft.style.custom_css}
+              onChange={(e) => setStyle("custom_css", e.target.value)}
+            />
+          </details>
           <button className="btn primary small" disabled={!dirty} onClick={save}>
             Save changes
           </button>
@@ -182,7 +476,8 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
           <h3 className="section-title">Usage</h3>
           <p className="muted small">
             Visitors' questions use your credits. Today: {money(embed.spent_today_usd)} of the {money(embed.daily_cap_usd)} daily limit. All
-            time: {money(embed.spent_total_usd)} across {plural(embed.conversations, "conversation")}.
+            time: {money(embed.spent_total_usd)} across {plural(embed.conversations, "conversation")}. Visitors rated answers 👍{" "}
+            {embed.feedback.up} · 👎 {embed.feedback.down}.
           </p>
           <div className="embed-actions">
             <button className="btn ghost small" onClick={() => setShowChats((v) => !v)}>
@@ -231,6 +526,7 @@ function EmbedCard({ embed, onChanged, onRemoved }) {
       </div>
 
       {showChats && <Conversations embed={embed} />}
+      <Developers embed={embed} onChanged={onChanged} />
       {confirmDialog}
     </section>
   );

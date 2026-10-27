@@ -31,6 +31,8 @@
     s.width = open ? (small ? "100%" : "416px") : CLOSED.width;
     s.height = open ? (small ? "100%" : "min(680px, calc(100vh - 16px))") : CLOSED.height;
     s.maxHeight = "100vh";
+    // The widget can't tell a phone from a narrow desktop window by its own width, so say which it is.
+    if (frame.contentWindow) frame.contentWindow.postMessage({ type: "sitebot:layout", full: open && small }, base);
   }
 
   var open = false;
@@ -43,6 +45,11 @@
     frame.style.visibility = "visible";
     open = !!e.data.open;
     if (e.data.position === "left" || e.data.position === "right") side = e.data.position;
+    // A launcher with a label is wider than the round bubble.
+    var size = e.data.size;
+    if (size && size.width > 0 && size.height > 0) {
+      CLOSED = { width: Math.min(size.width, 360) + "px", height: Math.min(size.height, 160) + "px" };
+    }
     place(open);
   });
   window.addEventListener("resize", function () {

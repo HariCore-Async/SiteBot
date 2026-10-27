@@ -1,5 +1,8 @@
+import itertools
+import json
 import logging
 import threading
+from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -17,15 +20,15 @@ from .crawler import Crawler, CrawlError, normalize_input_url
 from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .embeds import (
-    admin_embed_out, check_visitor, client_ip, embed_out, frame_ancestors, ip_limiter, new_key, origin_allowed, read_limiter,
-    require_same_origin, visitor_limiter,
+    admin_embed_out, check_visitor, client_ip, effective_origin, embed_out, hash_secret, ip_limiter, is_cross_site,
+    new_key, new_secret, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
 from .ingest import is_running, request_stop, start_ingestion
-from .models import AccessGrant, Chat, Embed, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
+from .models import AccessGrant, Chat, Embed, Feedback, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .suggest import get_suggestions
 from .schemas import (
     AddSite, AdminSettingsIn, Ask, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
-    VerifyCode, VisitorAsk, site_out, user_out,
+    ServerAsk, ServerFeedback, VerifyCode, VisitorAsk, VisitorFeedback, site_out, user_out,
 )
 from .usage import global_budget, set_global_budget, usage_summary
 
@@ -41,6 +44,25 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="SiteBot", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def public_api_cors(request: Request, call_next):
+    """sitebot-client.js calls the public API straight from a customer's website. Any origin may read the replies
+    (no cookies are involved); each route checks that origin against the bot's own domain."""
+    origin = request.headers.get("origin")
+    if not origin or not request.url.path.startswith("/api/public/"):
+        return await call_next(request)
+    if request.method == "OPTIONS":
+        response = Response(status_code=204)
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Max-Age"] = "600"
+    else:
+        response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Vary"] = "Origin"
+    return response
 
 
 # ---------- Auth ----------
@@ -473,6 +495,13 @@ def update_embed(embed_id: int, body: EmbedUpdate, user: User = Depends(current_
         value = getattr(body, field)
         if value is not None:
             setattr(e, field, value.strip() if isinstance(value, str) else value)
+    if body.style is not None:
+        style = body.style.model_dump()
+        style["launcher_label"], style["title"] = style["launcher_label"].strip(), style["title"].strip()
+        style["custom_css"] = sanitize_css(style["custom_css"])
+        if style["launcher_icon"] == "none" and not style["launcher_label"]:
+            style["launcher_icon"] = "chat"
+        e.style = style
     db.commit()
     return embed_out(db, e, db.get(Site, e.site_id))
 
@@ -482,6 +511,24 @@ def rotate_embed_key(embed_id: int, user: User = Depends(current_user), db: Sess
     """Issues a new key; the old snippet stops working straight away."""
     e = own_embed(db, embed_id, user)
     e.key = new_key()
+    db.commit()
+    return embed_out(db, e, db.get(Site, e.site_id))
+
+
+@app.post("/api/embeds/{embed_id}/server-key")
+def make_server_key(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Creates (or replaces) the secret key for the headless API. The key is returned this once and never again."""
+    e = own_embed(db, embed_id, user)
+    secret = new_secret()
+    e.secret_hash, e.secret_hint, e.secret_created_at = hash_secret(secret), secret[-4:], utcnow()
+    db.commit()
+    return {**embed_out(db, e, db.get(Site, e.site_id)), "secret": secret}
+
+
+@app.delete("/api/embeds/{embed_id}/server-key")
+def revoke_server_key(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user)
+    e.secret_hash, e.secret_hint, e.secret_created_at = None, "", None
     db.commit()
     return embed_out(db, e, db.get(Site, e.site_id))
 
@@ -509,16 +556,65 @@ def embed_chats(embed_id: int, user: User = Depends(current_user), db: Session =
     ]
 
 
+def with_feedback(db: Session, msgs: list[dict]) -> list[dict]:
+    ids = [m["id"] for m in msgs if m["role"] == "assistant"]
+    rated = {f.message_id: f for f in db.scalars(select(Feedback).where(Feedback.message_id.in_(ids)))} if ids else {}
+    return [
+        {**m, "feedback": {"rating": rated[m["id"]].rating, "comment": rated[m["id"]].comment} if m["id"] in rated else None}
+        for m in msgs
+    ]
+
+
 @app.get("/api/embeds/{embed_id}/chats/{chat_id}/messages")
 def embed_chat_messages(embed_id: int, chat_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     e = own_embed(db, embed_id, user)
     chat = db.get(Chat, chat_id)
     if not chat or chat.embed_id != e.id:
         raise HTTPException(404, "Chat not found")
-    return messages_out(db, chat_id)
+    return with_feedback(db, messages_out(db, chat_id))
 
 
-# ---------- Website embeds (public, used by the widget) ----------
+# ---------- Website embeds: answering visitors (shared by the widget, sitebot-client.js and the server API) ----------
+
+def visitor_chat(db: Session, e: Embed, visitor_id: str) -> Chat | None:
+    return db.scalar(
+        select(Chat).where(Chat.embed_id == e.id, Chat.visitor_id == visitor_id).order_by(Chat.id.desc()).limit(1)
+    )
+
+
+def ready_or_unavailable(e: Embed, site: Site) -> None:
+    if e.status != "approved" or not e.enabled or site.generation == 0:
+        raise HTTPException(404, "This chatbot isn't available right now.")
+
+
+def visitor_events(owner_id: int, chat_id: int, embed_id: int, question: str) -> Iterator[str]:
+    # The request-scoped session may close before streaming ends, so the stream owns its own session.
+    sdb = SessionLocal()
+    try:
+        yield from answer_stream(sdb, sdb.get(User, owner_id), sdb.get(Chat, chat_id), question, embed=sdb.get(Embed, embed_id))
+    finally:
+        sdb.close()
+
+
+def ndjson(events: Iterator[str]) -> StreamingResponse:
+    return StreamingResponse(
+        events, media_type="application/x-ndjson", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
+
+
+def save_feedback(db: Session, e: Embed, message: Message | None, rating: str, comment: str) -> dict:
+    if not message or message.role != "assistant":
+        raise HTTPException(404, "Answer not found")
+    fb = db.scalar(select(Feedback).where(Feedback.message_id == message.id))
+    if not fb:
+        fb = Feedback(message_id=message.id, embed_id=e.id, rating=rating)
+        db.add(fb)
+    fb.rating, fb.comment = rating, comment.strip()
+    db.commit()
+    return {"ok": True}
+
+
+# ---------- Website embeds: public API (pk_ key, locked to the bot's website) ----------
 
 def optional_user(request: Request, db: Session) -> User | None:
     try:
@@ -528,46 +624,42 @@ def optional_user(request: Request, db: Session) -> User | None:
 
 
 def live_embed(db: Session, request: Request, key: str, origin: str, preview: bool) -> tuple[Embed, Site, User]:
-    """The embed a widget request is for, if it may answer. A preview is the owner (or an admin) trying it inside SiteBot."""
+    """The embed a widget or sitebot-client.js request is for, if it may answer.
+    A preview is the owner (or an admin) trying it inside SiteBot."""
     e = db.scalar(select(Embed).where(Embed.key == key))
     site = db.get(Site, e.site_id) if e else None
     owner = db.get(User, e.owner_id) if e else None
     if not e or not site or not owner:
         raise HTTPException(404, "This chatbot isn't available.")
-    if preview:
+    if preview and not is_cross_site(request):
         viewer = optional_user(request, db)
         if not viewer or (viewer.id != owner.id and viewer.role != "admin"):
             raise HTTPException(403, "Sign in to SiteBot to preview this chatbot.")
         return e, site, owner
-    if e.status != "approved" or not e.enabled or site.generation == 0:
-        raise HTTPException(404, "This chatbot isn't available right now.")
-    if not origin_allowed(site, origin):
+    ready_or_unavailable(e, site)
+    if not origin_allowed(site, effective_origin(request, origin)):
         raise HTTPException(403, f"This chatbot only works on {site.domain}.")
     return e, site, owner
 
 
-def visitor_chat(db: Session, e: Embed, visitor_id: str) -> Chat | None:
-    return db.scalar(
-        select(Chat).where(Chat.embed_id == e.id, Chat.visitor_id == visitor_id).order_by(Chat.id.desc()).limit(1)
-    )
-
-
 def limit_reads(request: Request) -> None:
-    require_same_origin(request)
     if not read_limiter.allow(client_ip(request)):
         raise HTTPException(429, "Too many requests. Please wait a moment.")
+
+
+def bot_info(db: Session, e: Embed, site: Site, owner: User) -> dict:
+    return {
+        "name": site.name, "domain": site.domain, "favicon": site.favicon,
+        "greeting": e.greeting or f"Hi, welcome to {site.name}! Ask me anything about {site.name}.",
+        "suggestions": get_suggestions(db, site, owner)[:4],
+    }
 
 
 @app.get("/api/public/{key}/config")
 def widget_config(key: str, request: Request, origin: str = "", preview: bool = False, db: Session = Depends(get_db)):
     limit_reads(request)
     e, site, owner = live_embed(db, request, key, origin, preview)
-    return {
-        "name": site.name, "domain": site.domain, "favicon": site.favicon,
-        "color": e.color, "position": e.position,
-        "greeting": e.greeting or f"Hi, welcome to {site.name}! Ask me anything about {site.name}.",
-        "suggestions": get_suggestions(db, site, owner)[:4],
-    }
+    return {**bot_info(db, e, site, owner), "color": e.color, "position": e.position, "style": style_of(e)}
 
 
 @app.get("/api/public/{key}/messages")
@@ -578,12 +670,11 @@ def widget_history(
     check_visitor(visitor_id)
     e, _, _ = live_embed(db, request, key, origin, preview)
     chat = visitor_chat(db, e, visitor_id)
-    return messages_out(db, chat.id) if chat else []
+    return with_feedback(db, messages_out(db, chat.id)) if chat else []
 
 
 @app.post("/api/public/{key}/messages")
 def widget_ask(key: str, body: VisitorAsk, request: Request, db: Session = Depends(get_db)):
-    require_same_origin(request)
     check_visitor(body.visitor_id)
     e, site, owner = live_embed(db, request, key, body.origin, body.preview)
     if not visitor_limiter.allow(f"{e.id}:{body.visitor_id}") or not ip_limiter.allow(client_ip(request)):
@@ -593,18 +684,111 @@ def widget_ask(key: str, body: VisitorAsk, request: Request, db: Session = Depen
         chat = Chat(user_id=None, site_id=site.id, embed_id=e.id, visitor_id=body.visitor_id)
         db.add(chat)
         db.commit()
-    owner_id, chat_id, embed_id, question = owner.id, chat.id, e.id, body.content.strip()
+    return ndjson(visitor_events(owner.id, chat.id, e.id, body.content.strip()))
 
-    def gen():
-        sdb = SessionLocal()
-        try:
-            yield from answer_stream(sdb, sdb.get(User, owner_id), sdb.get(Chat, chat_id), question, embed=sdb.get(Embed, embed_id))
-        finally:
-            sdb.close()
 
-    return StreamingResponse(
-        gen(), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-    )
+@app.post("/api/public/{key}/feedback")
+def widget_feedback(key: str, body: VisitorFeedback, request: Request, db: Session = Depends(get_db)):
+    limit_reads(request)
+    check_visitor(body.visitor_id)
+    e, _, _ = live_embed(db, request, key, body.origin, False)
+    msg = db.get(Message, body.message_id)
+    chat = db.get(Chat, msg.chat_id) if msg else None
+    if not chat or chat.embed_id != e.id or chat.visitor_id != body.visitor_id:
+        raise HTTPException(404, "Answer not found")
+    return save_feedback(db, e, msg, body.rating, body.comment)
+
+
+# ---------- Website embeds: server API (sk_ key, for customers who build their own UI on their backend) ----------
+
+def server_embed(request: Request, db: Session) -> tuple[Embed, Site, User]:
+    e = server_key_embed(db, request)
+    site, owner = db.get(Site, e.site_id), db.get(User, e.owner_id)
+    ready_or_unavailable(e, site)
+    if not server_limiter.allow(str(e.id)):
+        raise HTTPException(429, "Too many requests for this chatbot. Please slow down.")
+    return e, site, owner
+
+
+def server_chat(db: Session, e: Embed, visitor_id: str, conversation_id: int) -> Chat:
+    chat = db.get(Chat, conversation_id)
+    if not chat or chat.embed_id != e.id or chat.visitor_id != visitor_id:
+        raise HTTPException(404, "Conversation not found for this visitor_id.")
+    return chat
+
+
+@app.get("/api/v1/bot")
+def server_bot(request: Request, db: Session = Depends(get_db)):
+    e, site, owner = server_embed(request, db)
+    return bot_info(db, e, site, owner)
+
+
+@app.get("/api/v1/suggestions")
+def server_suggestions(request: Request, db: Session = Depends(get_db)):
+    e, site, owner = server_embed(request, db)
+    return {"questions": get_suggestions(db, site, owner)}
+
+
+@app.get("/api/v1/conversations")
+def server_conversations(request: Request, visitor_id: str, db: Session = Depends(get_db)):
+    e, _, _ = server_embed(request, db)
+    chats = db.scalars(
+        select(Chat).where(Chat.embed_id == e.id, Chat.visitor_id == visitor_id).order_by(Chat.updated_at.desc()).limit(100)
+    ).all()
+    return [{"conversation_id": c.id, "title": c.title, "updated_at": c.updated_at.isoformat()} for c in chats]
+
+
+@app.get("/api/v1/conversations/{conversation_id}/messages")
+def server_messages(conversation_id: int, request: Request, visitor_id: str, db: Session = Depends(get_db)):
+    e, _, _ = server_embed(request, db)
+    return with_feedback(db, messages_out(db, server_chat(db, e, visitor_id, conversation_id).id))
+
+
+@app.post("/api/v1/messages")
+def server_ask(body: ServerAsk, request: Request, db: Session = Depends(get_db)):
+    """Asks on behalf of one of the customer's users. Streams NDJSON events by default; `"stream": false` returns one JSON object."""
+    e, site, owner = server_embed(request, db)
+    if not visitor_limiter.allow(f"{e.id}:{body.visitor_id}"):
+        raise HTTPException(429, "This visitor is sending messages quickly. Please wait a moment and try again.")
+    if body.conversation_id:
+        chat = server_chat(db, e, body.visitor_id, body.conversation_id)
+    else:
+        chat = None if body.new_conversation else visitor_chat(db, e, body.visitor_id)
+        if not chat:
+            chat = Chat(user_id=None, site_id=site.id, embed_id=e.id, visitor_id=body.visitor_id)
+            db.add(chat)
+            db.commit()
+    events = visitor_events(owner.id, chat.id, e.id, body.content.strip())
+    conversation = json.dumps({"type": "conversation", "conversation_id": chat.id}) + "\n"
+    if body.stream:
+        return ndjson(itertools.chain([conversation], events))
+
+    answer, final = "", None
+    for line in events:
+        ev = json.loads(line)
+        if ev["type"] == "token":
+            answer += ev["text"]
+        elif ev["type"] == "replace":
+            answer = ev["text"]
+        elif ev["type"] in ("done", "error"):
+            final = ev
+    if not final or final["type"] == "error":
+        message = final["message"] if final else "Something went wrong while answering. Please try again."
+        raise HTTPException(503, message)
+    return {
+        "conversation_id": chat.id, "message_id": final["message_id"], "answer": answer,
+        "sources": final["sources"], "grounded": final["grounded"],
+    }
+
+
+@app.post("/api/v1/feedback")
+def server_feedback(body: ServerFeedback, request: Request, db: Session = Depends(get_db)):
+    e, _, _ = server_embed(request, db)
+    msg = db.get(Message, body.message_id)
+    chat = db.get(Chat, msg.chat_id) if msg else None
+    if not chat or chat.embed_id != e.id:
+        raise HTTPException(404, "Answer not found")
+    return save_feedback(db, e, msg, body.rating, body.comment)
 
 
 # ---------- Admin ----------
@@ -760,8 +944,7 @@ def widget_page(key: str, db: Session = Depends(get_db)):
     page = STATIC_DIR / "widget.html"
     if not page.exists():
         return Response("Frontend not built. Run `npm run build` in frontend/.", media_type="text/plain")
-    csp = frame_ancestors(site) if site else "frame-ancestors 'self'"
-    return FileResponse(page, headers={"Content-Security-Policy": csp, "Cache-Control": "no-cache"})
+    return FileResponse(page, headers={"Content-Security-Policy": widget_csp(site), "Cache-Control": "no-cache"})
 
 
 @app.get("/{path:path}", include_in_schema=False)
