@@ -2319,3 +2319,486 @@ td select {
     padding-left: 16px;
   }
 }
+
+/* ---------- Website embeds ---------- */
+.embed-page .add-form select {
+  flex: 1;
+  height: 46px;
+}
+.embed-page > .add-form {
+  margin-bottom: 12px;
+}
+.embed-card {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.embed-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.embed-card-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.embed-card-meta h2 {
+  font-size: 17px;
+}
+.embed-card p {
+  margin: 0;
+}
+.embed-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+  align-items: start;
+}
+.embed-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.embed-settings .section-title {
+  margin-top: 8px;
+}
+.embed-settings .btn.primary {
+  align-self: flex-start;
+}
+.snippet {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 10px 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--subtle);
+}
+.snippet code {
+  flex: 1;
+  min-width: 0;
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.embed-fields {
+  display: flex;
+  gap: 12px;
+}
+.embed-fields .field {
+  flex: 1;
+}
+.field input[type="color"] {
+  padding: 3px;
+  cursor: pointer;
+}
+.field select {
+  height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.field textarea {
+  font-weight: 400;
+  resize: vertical;
+}
+.embed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.embed-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.embed-preview iframe {
+  width: 100%;
+  height: 520px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  color-scheme: light;
+}
+.embed-convos {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.convo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.convo-row {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.convo-row:hover,
+.convo-row.active {
+  background: var(--subtle);
+  border-color: var(--border);
+}
+.convo-title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.convo-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.convo-msg p {
+  margin: 0 0 6px;
+}
+.convo-role {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.convo-msg.user {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--subtle);
+}
+@media (max-width: 900px) {
+  .embed-grid,
+  .embed-convos {
+    grid-template-columns: 1fr;
+  }
+}
+.custom-css summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.custom-css[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.custom-css textarea {
+  width: 100%;
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: vertical;
+}
+.field input[type="range"] {
+  height: auto;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.developers {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.developers p {
+  margin: 0;
+}
+.developers code,
+.custom-css code {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--subtle);
+  padding: 1px 5px;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+.dev-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.dev-options > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.secret-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+.code-tabs {
+  margin-top: 4px;
+}
+.code-block {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--subtle);
+}
+.code-block pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  max-height: 420px;
+}
+.code-block pre code {
+  font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: none;
+  padding: 0;
+}
+.code-block > .btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+@media (max-width: 900px) {
+  .dev-options {
+    grid-template-columns: 1fr;
+  }
+}
+/* ---------- Full-width pages (Chat with a bot, Add to your website, Home) ---------- */
+.page.wide {
+  padding: 40px clamp(20px, 3vw, 48px) 32px;
+}
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.page-head h1 {
+  font-size: 28px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+.page-head p {
+  margin: 0;
+  max-width: 760px;
+}
+.bots-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.bots-toolbar .tabs {
+  margin: 0;
+  flex: 1;
+}
+.tab .count {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.bots-page .bot-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+.bot-card {
+  position: relative;
+}
+.bot-card .status {
+  display: block;
+  width: fit-content;
+  margin-top: 2px;
+}
+.card-remove {
+  opacity: 0;
+  margin: -6px -6px -6px 0;
+}
+.bot-card:hover .card-remove,
+.card-remove:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .card-remove {
+    opacity: 1;
+  }
+}
+.pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  margin-top: 16px;
+}
+.pager-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.pager-btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.pager-btn.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.pager-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pager-gap {
+  padding: 0 4px;
+  color: var(--muted);
+}
+.inside-link {
+  margin: 8px 8px 0;
+  width: calc(100% - 16px);
+}
+.sidebar .side-nav + .bot-list {
+  border-top: 0;
+}
+
+/* Add to your website: pick a bot, then the widget (left) and the other ways to add it (right). */
+.bot-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: min(360px, 100%);
+}
+.bot-picker select {
+  height: 42px;
+}
+.embed-page .embed-card {
+  margin-top: 0;
+}
+.embed-start {
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.embed-start > div {
+  flex: 1;
+  min-width: 240px;
+}
+.embed-start h2 {
+  font-size: 17px;
+}
+.embed-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.embed-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  min-width: 0;
+}
+.pane-title {
+  font-size: 16px;
+}
+.widget-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 18px;
+  align-items: start;
+}
+.widget-editor .embed-preview {
+  position: sticky;
+  top: 12px;
+}
+.way {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.embed-pane .developers {
+  border-top: 0;
+  padding-top: 4px;
+}
+.embed-pane .dev-options {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.embed-pane .dev-options > div {
+  padding: 12px 14px;
+}
+.dev-lead {
+  color: var(--text);
+}
+.embed-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@media (max-width: 1500px) {
+  .widget-editor {
+    grid-template-columns: 1fr;
+  }
+  .widget-editor .embed-preview {
+    position: static;
+  }
+}
+@media (max-width: 1100px) {
+  .embed-panes {
+    grid-template-columns: 1fr;
+  }
+  .widget-editor {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  }
+}
+@media (max-width: 700px) {
+  .widget-editor {
+    grid-template-columns: 1fr;
+  }
+  .page.wide {
+    padding: 64px 16px 24px;
+  }
+}
+.embed-fields {
+  flex-wrap: wrap;
+}
+.embed-fields .field {
+  min-width: 140px;
+}

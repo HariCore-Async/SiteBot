@@ -34,12 +34,17 @@ export const api = {
 };
 
 /** Streams NDJSON events from the chat endpoint, calling onEvent for each. */
-export async function streamAnswer(chatId, content, onEvent, signal) {
-  const res = await fetch(`/api/chats/${chatId}/messages`, {
+export function streamAnswer(chatId, content, onEvent, signal) {
+  return streamEvents(`/api/chats/${chatId}/messages`, { content }, onEvent, signal);
+}
+
+/** POSTs `body` and calls onEvent for each NDJSON event in the streamed reply. */
+export async function streamEvents(path, body, onEvent, signal) {
+  const res = await fetch(path, {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!res.ok || !res.body) {

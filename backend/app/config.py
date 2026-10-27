@@ -30,6 +30,10 @@ class Settings(BaseSettings):
 
     global_budget_usd: float = 10.0
     default_user_limit_usd: float = 1.0
+    # Website embeds: the default daily spend cap per embed (admins can change it per embed), and extra
+    # origins every embed may run on, for local testing only (e.g. http://localhost:5500).
+    embed_daily_cap_usd: float = 0.5
+    embed_dev_origins: str = ""
 
     # Whole sites are read; this is only a safety ceiling so a huge site can't run forever.
     max_pages: int = 5000
@@ -49,6 +53,10 @@ class Settings(BaseSettings):
     @property
     def admin_email_set(self) -> set[str]:
         return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
+
+    @property
+    def embed_dev_origin_list(self) -> list[str]:
+        return [o.strip().rstrip("/").lower() for o in self.embed_dev_origins.split(",") if o.strip()]
 
     @property
     def sqlalchemy_url(self) -> str:

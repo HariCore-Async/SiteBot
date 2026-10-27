@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     Boolean,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
@@ -154,12 +155,44 @@ class HiddenSite(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Embed(Base):
+    """A bot placed on its own website with a script tag. Visitors chat anonymously; usage is charged to the owner."""
+
+    __tablename__ = "embeds"
+    __table_args__ = (UniqueConstraint("site_id", "owner_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Public: it appears in the website's HTML. The domain lock and limits are what protect it.
+    key: Mapped[str] = mapped_column(String(48), unique=True, index=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"), index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # pending | approved | rejected. Only approved embeds answer visitors.
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    color: Mapped[str] = mapped_column(String(20), default="#2563eb")
+    greeting: Mapped[str] = mapped_column(Text, default="")
+    position: Mapped[str] = mapped_column(String(10), default="right")  # right | left
+    daily_cap_usd: Mapped[float] = mapped_column(Float, default=settings.embed_daily_cap_usd)
+    # The rest of the widget's look (launcher, title, font, corner radius, theme, custom CSS); see schemas.EmbedStyle.
+    style: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Server key for the headless API. Only its SHA-256 is kept; the key itself is shown to the owner once.
+    secret_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    secret_hint: Mapped[str] = mapped_column(String(12), default="")
+    secret_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by: Mapped[str] = mapped_column(String(320), default="")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Chat(Base):
     __tablename__ = "chats"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # None for a website visitor's chat through an embed; those are found by (embed_id, visitor_id).
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True)
     site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"), index=True)
+    embed_id: Mapped[int | None] = mapped_column(ForeignKey("embeds.id", ondelete="CASCADE"), index=True, nullable=True)
+    visitor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     title: Mapped[str] = mapped_column(String(200), default="New chat")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -177,6 +210,19 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Feedback(Base):
+    """A website visitor's thumbs up or down on one answer, from the widget or the developer APIs."""
+
+    __tablename__ = "feedback"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), unique=True)
+    embed_id: Mapped[int] = mapped_column(ForeignKey("embeds.id", ondelete="CASCADE"), index=True)
+    rating: Mapped[str] = mapped_column(String(10))  # up | down
+    comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class UsageEvent(Base):
     """One OpenRouter call. Kept separately from messages so spend survives chat or bot deletion."""
 
@@ -185,6 +231,8 @@ class UsageEvent(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
     kind: Mapped[str] = mapped_column(String(20))  # answer | rewrite | verify
+    # Set when a website visitor's question caused the call; user_id is then the embed's owner.
+    embed_id: Mapped[int | None] = mapped_column(ForeignKey("embeds.id", ondelete="SET NULL"), index=True, nullable=True)
     model: Mapped[str] = mapped_column(String(200))
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)

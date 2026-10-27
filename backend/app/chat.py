@@ -10,13 +10,15 @@ from sqlalchemy.orm import Session
 
 from . import llm
 from .config import settings
-from .models import Chat, Message, Site, User, utcnow
+from .models import Chat, Embed, Message, Site, User, utcnow
 from .retrieval import Hit, retrieve
-from .usage import check_budget, record_usage, usage_summary
+from .usage import check_budget, embed_spent_today, record_usage, usage_summary
 
 log = logging.getLogger(__name__)
 
 NOT_FOUND_TOKEN = "NOT_FOUND"
+# What website visitors see when the owner's limits are reached; the owner's own budget details stay private.
+EMBED_UNAVAILABLE = "This assistant is taking a short break. Please try again later."
 GREETING = re.compile(r"^\s*(hi+|hello+|hey+|yo|hola|good (morning|afternoon|evening)|thanks?( you)?|thank you|ty|ok(ay)?|cool|great)[\s!.?]*$", re.I)
 # Questions about the bot itself, which the website can't answer.
 ABOUT_BOT = re.compile(
@@ -57,7 +59,7 @@ def event(kind: str, **data) -> str:
     return json.dumps({"type": kind, **data}) + "\n"
 
 
-def rewrite_question(db: Session, user: User, history: list[Message], question: str) -> str:
+def rewrite_question(db: Session, user: User, history: list[Message], question: str, embed_id: int | None = None) -> str:
     convo = "\n".join(f"{m.role.upper()}: {m.content[:600]}" for m in history)
     try:
         text, usage = llm.complete(
@@ -72,7 +74,7 @@ def rewrite_question(db: Session, user: User, history: list[Message], question: 
             ],
             max_tokens=120,
         )
-        record_usage(db, user.id, "rewrite", settings.openrouter_fast_model, usage)
+        record_usage(db, user.id, "rewrite", settings.openrouter_fast_model, usage, embed_id)
         return text.strip() or question
     except llm.LLMError as e:
         log.warning("Rewrite failed, using raw question: %s", e)
@@ -97,7 +99,7 @@ def split_sentences(answer: str) -> list[tuple[int, str]]:
     return [u for u in units if u[1]]
 
 
-def verify_answer(db: Session, user: User, hits: list[Hit], answer: str) -> str | None:
+def verify_answer(db: Session, user: User, hits: list[Hit], answer: str, embed_id: int | None = None) -> str | None:
     """Removes sentences that state facts the excerpts don't. Returns the checked answer, or None if nothing is left."""
     units = split_sentences(answer)
     numbered = "\n".join(f"S{k}: {text}" for k, (_, text) in enumerate(units, 1))
@@ -119,7 +121,7 @@ def verify_answer(db: Session, user: User, hits: list[Hit], answer: str) -> str 
             ],
             max_tokens=60,
         )
-        record_usage(db, user.id, "verify", settings.openrouter_fast_model, usage)
+        record_usage(db, user.id, "verify", settings.openrouter_fast_model, usage, embed_id)
         return {int(n) for n in re.findall(r"S(\d+)", text.upper())}
 
     try:
@@ -154,13 +156,19 @@ def verify_answer(db: Session, user: User, hits: list[Hit], answer: str) -> str 
     return result if re.search(r"\[\d+\]", result) else None
 
 
-def answer_stream(db: Session, user: User, chat: Chat, question: str) -> Iterator[str]:
+def answer_stream(db: Session, user: User, chat: Chat, question: str, embed: Embed | None = None) -> Iterator[str]:
+    """With an embed, a website visitor is asking: `user` is the embed's owner, who pays and whose budget stays private."""
+    embed_id = embed.id if embed else None
     site = db.get(Site, chat.site_id)
     if not site or site.generation == 0:
         yield event("error", message="This bot isn't ready yet.")
         return
     if reason := check_budget(db, user):
-        yield event("error", message=reason)
+        yield event("error", message=EMBED_UNAVAILABLE if embed else reason)
+        return
+    if embed and embed_spent_today(db, embed.id) >= embed.daily_cap_usd:
+        log.info("Embed %s reached its daily cap", embed.id)
+        yield event("error", message=EMBED_UNAVAILABLE)
         return
 
     history = list(
@@ -179,7 +187,8 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str) -> Iterato
         db.add(msg)
         chat.updated_at = utcnow()
         db.commit()
-        yield event("done", message_id=msg.id, sources=sources, grounded=grounded, usage=usage_summary(db, user))
+        meter = None if embed else usage_summary(db, user)
+        yield event("done", message_id=msg.id, sources=sources, grounded=grounded, usage=meter)
 
     if GREETING.match(question):
         text = f"Hi, welcome to {site.name}! I'm here to help with any questions about {site.name}. What would you like to know?"
@@ -198,7 +207,7 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str) -> Iterato
         return
 
     try:
-        search_query = rewrite_question(db, user, history, question) if history else question
+        search_query = rewrite_question(db, user, history, question, embed_id) if history else question
         hits, best_sim = retrieve(db, site.id, site.generation, search_query)
         if not hits or best_sim < settings.min_similarity:
             text = not_found_text(site)
@@ -225,7 +234,7 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str) -> Iterato
                 if len(buffer) >= len(NOT_FOUND_TOKEN) + 2 and not buffer.lstrip().startswith(NOT_FOUND_TOKEN[:3]):
                     released = True
                     yield event("token", text=buffer)
-        record_usage(db, user.id, "answer", settings.openrouter_model, usage)
+        record_usage(db, user.id, "answer", settings.openrouter_model, usage, embed_id)
         answer = answer.strip()
 
         if NOT_FOUND_TOKEN in answer[:20] or not answer:
@@ -244,7 +253,7 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str) -> Iterato
         cleaned = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if 1 <= int(m.group(1)) <= len(hits) else "", answer)
 
         if settings.verify_answers:
-            checked = verify_answer(db, user, hits, cleaned)
+            checked = verify_answer(db, user, hits, cleaned, embed_id)
             if checked is None:
                 text = not_found_text(site)
                 yield event("replace", text=text)

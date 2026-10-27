@@ -88,6 +88,66 @@ class BudgetIn(BaseModel):
     global_budget_usd: float = Field(ge=0, le=100000)
 
 
+class EmbedIn(BaseModel):
+    site_id: int
+
+
+class EmbedStyle(BaseModel):
+    launcher_icon: str = Field(default="chat", pattern="^(chat|help|sparkle|none)$")  # none: label only
+    launcher_label: str = Field(default="", max_length=30)
+    title: str = Field(default="", max_length=60)  # empty: the bot's name
+    font: str = Field(default="system", pattern="^(system|sans|serif|rounded|mono)$")
+    radius: int = Field(default=16, ge=0, le=28)
+    theme: str = Field(default="light", pattern="^(light|dark|auto)$")
+    custom_css: str = Field(default="", max_length=5000)
+
+
+class EmbedUpdate(BaseModel):
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    greeting: str | None = Field(default=None, max_length=300)
+    position: str | None = Field(default=None, pattern="^(right|left)$")
+    enabled: bool | None = None
+    style: EmbedStyle | None = None
+
+
+class EmbedReview(BaseModel):
+    status: str | None = Field(default=None, pattern="^(approved|rejected|pending)$")
+    daily_cap_usd: float | None = Field(default=None, ge=0, le=1000)
+
+
+class VisitorAsk(BaseModel):
+    visitor_id: str = Field(min_length=16, max_length=64)
+    content: str = Field(min_length=1, max_length=1000)
+    # The website the widget is on, as embed.js reported it. The CSP on the widget page is the real lock.
+    origin: str = Field(default="", max_length=300)
+    preview: bool = False
+
+
+class VisitorFeedback(BaseModel):
+    visitor_id: str = Field(min_length=16, max_length=64)
+    message_id: int
+    rating: str = Field(pattern="^(up|down)$")
+    comment: str = Field(default="", max_length=1000)
+    origin: str = Field(default="", max_length=300)
+
+
+class ServerAsk(BaseModel):
+    """Headless API: a question from the customer's server on behalf of one of their users."""
+
+    visitor_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:@-]+$")
+    content: str = Field(min_length=1, max_length=1000)
+    # Continue this conversation; without it, the visitor's latest one continues (or a new one starts).
+    conversation_id: int | None = None
+    new_conversation: bool = False
+    stream: bool = True
+
+
+class ServerFeedback(BaseModel):
+    message_id: int
+    rating: str = Field(pattern="^(up|down)$")
+    comment: str = Field(default="", max_length=1000)
+
+
 def site_out(s: Site) -> dict:
     return {
         "id": s.id,
