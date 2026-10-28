@@ -40,7 +40,7 @@ def _ensure_database() -> None:
 
 _ensure_database()
 
-from app import embeddings, llm, main, retrieval, suggest  # noqa: E402
+from app import embeddings, knowledge, llm, main, retrieval, suggest  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.embeds import ip_limiter, read_limiter, server_limiter, visitor_limiter  # noqa: E402
@@ -97,6 +97,7 @@ def fakes(monkeypatch):
     monkeypatch.setattr(llm, "stream", AI.stream)
     monkeypatch.setattr(retrieval, "embed_query", lambda text: VECTOR)
     monkeypatch.setattr(embeddings, "embed_query", lambda text: VECTOR)
+    monkeypatch.setattr(knowledge, "embed_passages", lambda texts: [VECTOR for _ in texts])
     monkeypatch.setattr(main, "warm_up", lambda: None)
     monkeypatch.setattr(suggest, "retrieve", lambda db, site_id, gen, q: ([], 1.0))
     for limiter in (visitor_limiter, ip_limiter, read_limiter, server_limiter):

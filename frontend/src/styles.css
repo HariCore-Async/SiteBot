@@ -3355,3 +3355,93 @@ td select {
 .error-text {
   color: var(--danger);
 }
+/* ---------- Knowledge and leads ---------- */
+.knowledge-tab,
+.leads-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 1000px;
+}
+.knowledge-tab > p,
+.leads-tab > p,
+.knowledge-tab .way p {
+  margin: 0;
+}
+.section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.answer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.answer-form input {
+  height: 38px;
+}
+.knowledge-list,
+.lead-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.knowledge-list > li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.knowledge-answer {
+  white-space: pre-wrap;
+}
+.row-actions {
+  display: flex;
+  gap: 10px;
+  flex: none;
+  align-items: flex-start;
+}
+.danger-link {
+  color: var(--danger);
+}
+.upload-btn {
+  position: relative;
+  align-self: flex-start;
+  cursor: pointer;
+}
+.upload-btn input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.teach-btn {
+  margin-left: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.lead-list .way.done {
+  opacity: 0.65;
+}
+.lead-head {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+}
+.lead-head .btn {
+  margin-left: auto;
+}
+.lead-list p {
+  margin: 0;
+}

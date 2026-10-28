@@ -137,6 +137,14 @@
         return res.json();
       },
 
+      /** Human handoff: after an answer it couldn't give, let the visitor leave their email for the team.
+       *  contact({ email, name?, message? }) -> { ok: true }. The owner is emailed and sees it under Leads. */
+      contact: async function (details) {
+        var res = await post("/leads", { email: details.email, name: details.name || "", message: details.message || "" });
+        if (!res.ok) throw await errorOf(res);
+        return res.json();
+      },
+
       /** Starts a fresh conversation for this visitor (the old one stays visible to the bot's owner). */
       newConversation: function () {
         visitor = store(STORE + options.key, randomId());

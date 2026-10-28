@@ -114,6 +114,29 @@ class Site(Base):
     fast_model: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
+# Chunks in this generation are the owner's own knowledge (answers they taught, documents they uploaded). Crawled pages
+# start at generation 1, and re-indexing never touches generation 0, so this knowledge survives every update.
+KNOWLEDGE_GENERATION = 0
+
+
+class Knowledge(Base):
+    """Something the bot's owner taught it: an answer to a question, or an uploaded document."""
+
+    __tablename__ = "knowledge"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # answer | document
+    title: Mapped[str] = mapped_column(Text, default="")  # the question, or the file name
+    content: Mapped[str] = mapped_column(Text, default="")  # the answer, or the document's text
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    chunks: Mapped[int] = mapped_column(Integer, default=0)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Page(Base):
     __tablename__ = "pages"
 
@@ -222,6 +245,23 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text)
     sources: Mapped[list] = mapped_column(JSON, default=list)
     grounded: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Lead(Base):
+    """A website visitor who left their email because the bot couldn't answer (human handoff)."""
+
+    __tablename__ = "leads"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    embed_id: Mapped[int] = mapped_column(ForeignKey("embeds.id", ondelete="CASCADE"), index=True)
+    chat_id: Mapped[int | None] = mapped_column(ForeignKey("chats.id", ondelete="SET NULL"), nullable=True)
+    email: Mapped[str] = mapped_column(String(320))
+    name: Mapped[str] = mapped_column(String(200), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    question: Mapped[str] = mapped_column(Text, default="")  # what the bot couldn't answer
+    origin: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open | done
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

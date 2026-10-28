@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import accounts, auth, llm, providers
+from . import accounts, auth, knowledge, llm, providers
 from .auth import admin_user, current_user, email_domain, is_org_domain, login_user
 from .chat import answer_stream
 from .config import settings
@@ -29,11 +29,12 @@ from .embeds import (
     insights, new_key, new_secret, note_seen, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
 from .ingest import is_running, request_stop, start_ingestion
-from .models import AccessGrant, AIModel, AIProvider, Chat, Embed, Feedback, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
+from .models import AccessGrant, AIModel, AIProvider, Chat, Embed, Feedback, Knowledge, Lead, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
+from .knowledge import knowledge_out
 from .providers import encrypt_key, provider_out
 from .suggest import get_suggestions
 from .schemas import (
-    AddSite, AdminSettingsIn, AIDefaults, AITest, Ask, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, AdminSettingsIn, AIDefaults, AITest, AnswerIn, Ask, DocumentIn, LeadIn, LeadUpdate, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     ServerAsk, ServerFeedback, VerifyCode, VisitorAsk, VisitorFeedback, site_out, user_out,
 )
 from .xlsx import to_xlsx
@@ -679,6 +680,86 @@ def embed_chat_messages(embed_id: int, chat_id: int, user: User = Depends(curren
     return with_feedback(db, messages_out(db, chat_id))
 
 
+# ---------- Teaching a bot: the owner's own answers and documents ----------
+
+def own_site(db: Session, site_id: int, user: User) -> Site:
+    """A bot its creator (or an admin) may teach. Bots are shared, so this is the person who added it."""
+    site = db.get(Site, site_id)
+    if not site:
+        raise HTTPException(404, "Bot not found")
+    if site.created_by != user.id and user.role != "admin":
+        raise HTTPException(403, "Only the person who added this chatbot, or an admin, can teach it.")
+    return site
+
+
+def own_knowledge(db: Session, site: Site, knowledge_id: int) -> Knowledge:
+    k = db.get(Knowledge, knowledge_id)
+    if not k or k.site_id != site.id:
+        raise HTTPException(404, "Not found")
+    return k
+
+
+@app.get("/api/sites/{site_id}/knowledge")
+def list_knowledge(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    site = own_site(db, site_id, user)
+    items = db.scalars(select(Knowledge).where(Knowledge.site_id == site.id).order_by(Knowledge.updated_at.desc())).all()
+    return [knowledge_out(k) for k in items]
+
+
+@app.post("/api/sites/{site_id}/knowledge/answers")
+def add_answer(site_id: int, body: AnswerIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    site = own_site(db, site_id, user)
+    return knowledge_out(knowledge.save_answer(db, site, body.question, body.answer, user.id))
+
+
+@app.patch("/api/sites/{site_id}/knowledge/{knowledge_id}")
+def edit_answer(site_id: int, knowledge_id: int, body: AnswerIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    site = own_site(db, site_id, user)
+    k = own_knowledge(db, site, knowledge_id)
+    if k.kind != "answer":
+        raise HTTPException(400, "Documents can't be edited; remove it and upload the new version.")
+    return knowledge_out(knowledge.save_answer(db, site, body.question, body.answer, user.id, k))
+
+
+@app.post("/api/sites/{site_id}/knowledge/documents")
+def add_document(site_id: int, body: DocumentIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    site = own_site(db, site_id, user)
+    return knowledge_out(knowledge.save_document(db, site, body.filename, body.data_b64, user.id))
+
+
+@app.delete("/api/sites/{site_id}/knowledge/{knowledge_id}")
+def delete_knowledge(site_id: int, knowledge_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    site = own_site(db, site_id, user)
+    knowledge.remove(db, site, own_knowledge(db, site, knowledge_id))
+    return {"ok": True}
+
+
+# ---------- Human handoff: visitors who leave their email ----------
+
+def lead_out(lead: Lead) -> dict:
+    return {
+        "id": lead.id, "email": lead.email, "name": lead.name, "message": lead.message, "question": lead.question,
+        "origin": lead.origin, "status": lead.status, "chat_id": lead.chat_id, "created_at": lead.created_at.isoformat(),
+    }
+
+
+@app.get("/api/embeds/{embed_id}/leads")
+def embed_leads(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user)
+    return [lead_out(x) for x in db.scalars(select(Lead).where(Lead.embed_id == e.id).order_by(Lead.created_at.desc()).limit(500))]
+
+
+@app.patch("/api/embeds/{embed_id}/leads/{lead_id}")
+def update_lead(embed_id: int, lead_id: int, body: LeadUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user)
+    lead = db.get(Lead, lead_id)
+    if not lead or lead.embed_id != e.id:
+        raise HTTPException(404, "Not found")
+    lead.status = body.status
+    db.commit()
+    return lead_out(lead)
+
+
 # ---------- Website embeds: answering visitors (shared by the widget, sitebot-client.js and the server API) ----------
 
 def visitor_chat(db: Session, e: Embed, visitor_id: str) -> Chat | None:
@@ -798,6 +879,41 @@ def widget_ask(key: str, body: VisitorAsk, request: Request, db: Session = Depen
     chat.is_test = chat.is_test or testing
     db.commit()
     return ndjson(visitor_events(owner.id, chat.id, e.id, body.content.strip()))
+
+
+@app.post("/api/public/{key}/leads")
+def widget_lead(key: str, body: LeadIn, request: Request, db: Session = Depends(get_db)):
+    """A visitor leaves their email after a question the bot couldn't answer. The owner is emailed and sees it listed."""
+    check_visitor(body.visitor_id)
+    e, site, owner = live_embed(db, request, key, body.origin, False)
+    email = body.email.strip()
+    if not accounts.EMAIL_RE.match(email):
+        raise HTTPException(400, "Please enter a valid email address.")
+    if not visitor_limiter.allow(f"lead:{e.id}:{body.visitor_id}") or not ip_limiter.allow(client_ip(request)):
+        raise HTTPException(429, "Please wait a moment and try again.")
+    chat = visitor_chat(db, e, body.visitor_id)
+    question = ""
+    if chat:
+        msgs = db.scalars(select(Message).where(Message.chat_id == chat.id).order_by(Message.id.desc()).limit(10)).all()
+        # The latest question the bot couldn't answer, or else the latest question.
+        for i, m in enumerate(msgs):
+            if m.role == "assistant" and not m.grounded and i + 1 < len(msgs) and msgs[i + 1].role == "user":
+                question = msgs[i + 1].content
+                break
+        question = question or next((m.content for m in msgs if m.role == "user"), "")
+    lead = Lead(embed_id=e.id, chat_id=chat.id if chat else None, email=email, name=body.name.strip(), message=body.message.strip(),
+                question=question[:2000], origin=clean_origin(effective_origin(request, body.origin)))
+    db.add(lead)
+    db.commit()
+    lines = [f"A visitor on {lead.origin or site.domain} asked {site.name} Chatbot something it couldn't answer, and left their details."]
+    if question:
+        lines.append(f"\nTheir question: {question}")
+    lines.append(f"\nName: {lead.name or '(not given)'}\nEmail: {email}")
+    if lead.message:
+        lines.append(f"\nMessage: {lead.message}")
+    lines.append("\nReply to them directly. The conversation is on the chatbot's page in SiteBot (Conversations and Leads).")
+    accounts.notify([owner.email], f"SiteBot: a visitor wants to hear from you ({site.name})", "\n".join(lines) + app_link(f"#/website/{e.id}/leads"))
+    return {"ok": True}
 
 
 @app.post("/api/public/{key}/feedback")

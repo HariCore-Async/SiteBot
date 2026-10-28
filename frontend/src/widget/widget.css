@@ -427,3 +427,48 @@ img.w-avatar {
   color: var(--w-muted);
   margin-left: 4px;
 }
+/* ---------- Human handoff ---------- */
+.w-handoff-open {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--w-accent);
+  background: transparent;
+  color: var(--w-text);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.w-handoff {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--w-border);
+}
+.w-handoff input,
+.w-handoff textarea {
+  padding: 7px 9px;
+  border: 1px solid var(--w-border-strong);
+  border-radius: min(10px, var(--w-radius));
+  background: var(--w-bg);
+  color: var(--w-text);
+  resize: vertical;
+}
+.w-handoff .w-error {
+  margin: 0;
+}
+.w-send-lead {
+  align-self: flex-start;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--w-accent);
+  color: var(--w-on-accent);
+  cursor: pointer;
+}
+.w-handoff-done {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--w-muted);
+}
