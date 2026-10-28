@@ -1076,9 +1076,10 @@ def widget_page(key: str, db: Session = Depends(get_db)):
     e = db.scalar(select(Embed).where(Embed.key == key))
     site = db.get(Site, e.site_id) if e else None
     page = STATIC_DIR / "widget.html"
+    headers = {"Content-Security-Policy": widget_csp(e, site), "Cache-Control": "no-cache"}
     if not page.exists():
-        return Response("Frontend not built. Run `npm run build` in frontend/.", media_type="text/plain")
-    return FileResponse(page, headers={"Content-Security-Policy": widget_csp(e, site), "Cache-Control": "no-cache"})
+        return Response("Frontend not built. Run `npm run build` in frontend/.", media_type="text/plain", headers=headers)
+    return FileResponse(page, headers=headers)
 
 
 @app.get("/{path:path}", include_in_schema=False)
