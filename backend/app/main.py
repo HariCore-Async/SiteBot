@@ -29,12 +29,12 @@ from .embeds import (
     insights, new_key, new_secret, note_seen, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
 from .ingest import is_running, request_stop, resume_interrupted, start_ingestion
-from .models import AccessGrant, AIModel, AIProvider, Chat, Embed, EmbedMember, Feedback, Knowledge, Lead, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
+from .models import AccessGrant, AIModel, Plan, AIProvider, Chat, Embed, EmbedMember, Feedback, Knowledge, Lead, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .knowledge import knowledge_out
 from .providers import encrypt_key, provider_out
 from .suggest import for_page, get_suggestions
 from .schemas import (
-    AddSite, AdminSettingsIn, AIDefaults, AITest, AnswerIn, Ask, DocumentIn, LeadIn, LeadUpdate, MemberIn, MemberUpdate, ScheduleIn, VerifyIn, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, AdminSettingsIn, AIDefaults, AITest, AnswerIn, Ask, DocumentIn, LeadIn, LeadUpdate, MemberIn, MemberUpdate, PlanIn, ScheduleIn, UserPlanIn, VerifyIn, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     ServerAsk, ServerFeedback, VerifyCode, VisitorAsk, VisitorFeedback, site_out, user_out,
 )
 from .xlsx import to_xlsx
@@ -92,6 +92,7 @@ def public_config(db: Session = Depends(get_db)):
         "google_client_id": settings.google_client_id,
         "require_approval": auth.approval_required(db),
         "email_enabled": accounts.email_enabled(),
+        "billing_enabled": settings.billing_enabled,
         "sentry": {"dsn": settings.sentry_browser_dsn, "environment": settings.sentry_environment} if settings.sentry_browser_dsn else None,
     }
 
@@ -1247,6 +1248,70 @@ def admin_get_budget(_: User = Depends(admin_user), db: Session = Depends(get_db
 def admin_set_budget(body: BudgetIn, _: User = Depends(admin_user), db: Session = Depends(get_db)):
     set_global_budget(db, body.global_budget_usd)
     return {"global_budget_usd": body.global_budget_usd}
+
+
+# ---------- Admin: plans (billing scaffolding, off unless BILLING_ENABLED) ----------
+
+def billing_on() -> None:
+    if not settings.billing_enabled:
+        raise HTTPException(404, "Not found")
+
+
+def plan_out(p: Plan, db: Session) -> dict:
+    users = db.scalar(select(func.count(User.id)).where(User.plan_id == p.id))
+    return {"id": p.id, "name": p.name, "price_usd_month": p.price_usd_month, "credit_usd_month": p.credit_usd_month,
+            "max_bots": p.max_bots, "max_embeds": p.max_embeds, "active": p.active, "users": users}
+
+
+@app.get("/api/admin/plans")
+def admin_plans(_: User = Depends(admin_user), db: Session = Depends(get_db)):
+    billing_on()
+    return [plan_out(p, db) for p in db.scalars(select(Plan).order_by(Plan.price_usd_month, Plan.id))]
+
+
+@app.post("/api/admin/plans")
+def admin_add_plan(body: PlanIn, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    billing_on()
+    p = Plan(**body.model_dump())
+    db.add(p)
+    db.commit()
+    return plan_out(p, db)
+
+
+@app.put("/api/admin/plans/{plan_id}")
+def admin_update_plan(plan_id: int, body: PlanIn, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    billing_on()
+    p = db.get(Plan, plan_id)
+    if not p:
+        raise HTTPException(404, "Plan not found")
+    for k, v in body.model_dump().items():
+        setattr(p, k, v)
+    db.commit()
+    return plan_out(p, db)
+
+
+@app.delete("/api/admin/plans/{plan_id}")
+def admin_delete_plan(plan_id: int, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    billing_on()
+    p = db.get(Plan, plan_id)
+    if not p:
+        raise HTTPException(404, "Plan not found")
+    db.delete(p)
+    db.commit()
+    return {"ok": True}
+
+
+@app.patch("/api/admin/users/{user_id}/plan")
+def admin_user_plan(user_id: int, body: UserPlanIn, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    billing_on()
+    u = db.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "User not found")
+    if body.plan_id is not None and not db.get(Plan, body.plan_id):
+        raise HTTPException(400, "That plan doesn't exist.")
+    u.plan_id = body.plan_id
+    db.commit()
+    return {"id": u.id, "plan_id": u.plan_id}
 
 
 @app.get("/api/admin/embeds")

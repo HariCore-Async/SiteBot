@@ -86,6 +86,7 @@ def init_db() -> None:
         conn.execute(text("ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS provider VARCHAR(100) NOT NULL DEFAULT ''"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS last_seen_origin VARCHAR(300) NOT NULL DEFAULT ''"))
         conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS resumes INTEGER NOT NULL DEFAULT 0"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_id INTEGER REFERENCES plans(id) ON DELETE SET NULL"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verify_token VARCHAR(64) NOT NULL DEFAULT ''"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verified_via VARCHAR(10) NOT NULL DEFAULT ''"))

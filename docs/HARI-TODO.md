@@ -43,6 +43,10 @@ service's **Variables** tab (Railway redeploys automatically).
 - `REDIS_URL` (e.g. Railway's Redis template) makes rate limits shared between copies. Not needed with one replica.
 - Indexing and the scheduler still assume one replica; keep Railway at one replica for now.
 
+## Billing (not started; nothing to set)
+- [ ] Answer the questions in `docs/BILLING.md` (prices, trial, what happens at a limit, Stripe account). Until then
+      leave `BILLING_ENABLED` unset: no plans screen, no charges, nothing visible to users.
+
 ## GitHub
 - [ ] Delete merged branches you no longer need (each merged PR page has a *Delete branch* button).
 - [ ] Optional: in GitHub > Settings > Branches, require the **CI** checks to pass before merging to `main`.

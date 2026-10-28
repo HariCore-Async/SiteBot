@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     scheduler_interval_seconds: int = 600
 
+    # Billing scaffolding: plans an admin can define and assign. Off by default; nothing is charged either way.
+    billing_enabled: bool = False
+
     # Error monitoring with Sentry. Off unless a DSN is set; the browser DSN is public by design.
     sentry_dsn: str = ""
     sentry_browser_dsn: str = ""
