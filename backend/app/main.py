@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import accounts, auth, knowledge, llm, providers, scheduler
+from . import accounts, auth, knowledge, llm, providers, scheduler, verify
 from .auth import admin_user, current_user, email_domain, is_org_domain, login_user
 from .chat import answer_stream
 from .config import settings
@@ -28,13 +28,13 @@ from .embeds import (
     admin_embed_out, check_visitor, clean_origin, client_ip, effective_origin, embed_out, hash_secret, ip_limiter, is_cross_site,
     insights, new_key, new_secret, note_seen, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
-from .ingest import is_running, request_stop, start_ingestion
+from .ingest import is_running, request_stop, resume_interrupted, start_ingestion
 from .models import AccessGrant, AIModel, AIProvider, Chat, Embed, EmbedMember, Feedback, Knowledge, Lead, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .knowledge import knowledge_out
 from .providers import encrypt_key, provider_out
 from .suggest import for_page, get_suggestions
 from .schemas import (
-    AddSite, AdminSettingsIn, AIDefaults, AITest, AnswerIn, Ask, DocumentIn, LeadIn, LeadUpdate, MemberIn, MemberUpdate, ScheduleIn, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, AdminSettingsIn, AIDefaults, AITest, AnswerIn, Ask, DocumentIn, LeadIn, LeadUpdate, MemberIn, MemberUpdate, ScheduleIn, VerifyIn, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     ServerAsk, ServerFeedback, VerifyCode, VisitorAsk, VisitorFeedback, site_out, user_out,
 )
 from .xlsx import to_xlsx
@@ -58,6 +58,7 @@ async def lifespan(_: FastAPI):
     # Load the embedding model in the background so the first question isn't slow.
     threading.Thread(target=warm_up, daemon=True).start()
     scheduler.start()
+    resume_interrupted()
     yield
 
 
@@ -499,7 +500,31 @@ def own_embed(db: Session, embed_id: int, user: User, need: str = "owner") -> Em
 
 
 def embed_view(db: Session, e: Embed, user: User) -> dict:
+    if not e.verify_token:
+        e.verify_token = verify.new_token()
+        db.commit()
     return {**embed_out(db, e, db.get(Site, e.site_id)), "my_role": embed_role(db, e, user)}
+
+
+@app.post("/api/embeds/{embed_id}/verify")
+def verify_domain(embed_id: int, body: VerifyIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Checks the meta tag or DNS record. Once verified, a waiting request is approved without an admin."""
+    e = own_embed(db, embed_id, user, "owner")
+    site = db.get(Site, e.site_id)
+    if not e.verify_token:
+        e.verify_token = verify.new_token()
+        db.commit()
+    check = verify.check_meta if body.method == "meta" else verify.check_dns
+    ok, problem = check(site.domain, e.verify_token)
+    if not ok:
+        raise HTTPException(400, f"Not verified yet: {problem}.")
+    e.verified_at, e.verified_via = utcnow(), body.method
+    # Approves a waiting request, unless an admin already reviewed it (e.g. rejected it): their decision stands.
+    if e.status == "pending" and e.reviewed_at is None:
+        e.status, e.reviewed_by, e.reviewed_at = "approved", "domain verification", utcnow()
+        e.review_note = ""
+    db.commit()
+    return embed_view(db, e, user)
 
 
 @app.get("/api/embeds")

@@ -769,6 +769,59 @@ function Insights({ embed, onTeach }) {
 
 // ---------- Usage & settings ----------
 
+/** Domain verification: prove you control the website and a waiting request goes live without an admin. */
+function Verification({ embed, onChanged }) {
+  const v = embed.verification || {};
+  const [busy, setBusy] = useState("");
+  const [result, setResult] = useState("");
+  const check = async (method) => {
+    setBusy(method);
+    setResult("");
+    try {
+      onChanged(await api.post(`/api/embeds/${embed.id}/verify`, { method }));
+      setResult("ok");
+    } catch (e) {
+      setResult(e.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <section className="way verification">
+      <strong>Verify {embed.site.domain}</strong>
+      {v.verified_at ? (
+        <p className="ok-text small">
+          Verified {timeAgo(v.verified_at)} by {v.via === "dns" ? "DNS record" : "meta tag"}.
+        </p>
+      ) : (
+        <p className="muted small">
+          Prove you run this website{embed.status === "pending" ? " and it goes live straight away, without waiting for an admin" : ""}. Use either way:
+        </p>
+      )}
+      <div className="verify-way">
+        <span className="small">
+          <strong>Meta tag</strong> on your home page, inside &lt;head&gt;:
+        </span>
+        <CopyBox text={v.meta_tag || ""} />
+        <button className="btn small" disabled={!!busy} onClick={() => check("meta")}>
+          {busy === "meta" ? "Checking…" : "Check meta tag"}
+        </button>
+      </div>
+      <div className="verify-way">
+        <span className="small">
+          <strong>DNS TXT record</strong> on <code>{v.dns_name}</code>:
+        </span>
+        <CopyBox text={v.dns_value || ""} />
+        <button className="btn small" disabled={!!busy} onClick={() => check("dns")}>
+          {busy === "dns" ? "Checking…" : "Check DNS record"}
+        </button>
+      </div>
+      {result === "ok" && <p className="ok-text small">Verified ✓</p>}
+      {result && result !== "ok" && <p className="error">{result}</p>}
+    </section>
+  );
+}
+
 /** Keep the bot up to date (scheduled re-index of its website) and the weekly report email. */
 function UpdatesAndReports({ embed, onChanged }) {
   const [error, setError] = useState("");
@@ -980,6 +1033,7 @@ function UsageTab({ embed, me, onChanged, onRemoved, onInstall, onTeach }) {
         )}
       </section>
 
+      {embed.my_role === "owner" && <Verification embed={embed} onChanged={onChanged} />}
       <UpdatesAndReports embed={embed} onChanged={onChanged} />
       <Team embed={embed} me={me} onLeft={() => onRemoved(embed.id)} />
 
@@ -1436,7 +1490,12 @@ function EmbedBot({ embed, me, tab, sub, onRoute, onChanged, onRemoved }) {
 
       {embed.status === "pending" && (
         <div className="banner pending" role="status">
-          <strong>Waiting for admin approval.</strong> You can design and install it now; it starts answering visitors once an admin approves it.
+          <strong>Waiting for admin approval.</strong> You can design and install it now; it starts answering visitors once an admin approves it.{" "}
+          {embed.my_role === "owner" && !embed.reviewed_at && (
+            <button className="link-btn" onClick={() => go({ embedId: embed.id, tab: "usage" })}>
+              Or verify your domain to go live now
+            </button>
+          )}
         </div>
       )}
       {embed.status === "rejected" && (

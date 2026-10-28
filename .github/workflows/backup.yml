@@ -1,0 +1,36 @@
+name: Database backup
+
+# Daily encrypted pg_dump kept as a 14-day artifact. Skips itself until the BACKUP_DATABASE_URL and BACKUP_PASSPHRASE
+# repository secrets are set (see docs/BACKUPS.md).
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      PGURL: ${{ secrets.BACKUP_DATABASE_URL }}
+      PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -z "$PGURL" ] || [ -z "$PASSPHRASE" ]; then
+            echo "Backup secrets aren't set; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Dump and encrypt
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          docker run --rm -e PGURL postgres:16 sh -c 'pg_dump --no-owner --format=custom "$PGURL"' > sitebot.dump
+          gpg --batch --yes --symmetric --cipher-algo AES256 --passphrase "$PASSPHRASE" -o sitebot.dump.gpg sitebot.dump
+          rm sitebot.dump
+          ls -lh sitebot.dump.gpg
+      - uses: actions/upload-artifact@v4
+        if: steps.check.outputs.skip != 'true'
+        with:
+          name: sitebot-db-${{ github.run_id }}
+          path: sitebot.dump.gpg
+          retention-days: 14

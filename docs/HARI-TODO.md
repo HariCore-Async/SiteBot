@@ -29,6 +29,20 @@ service's **Variables** tab (Railway redeploys automatically).
 - Already supported: set `RESEND_API_KEY` (recommended) or the `SMTP_*` variables, plus `MAIL_FROM`.
 - Set `APP_URL` to the app's public address (e.g. `https://sitebot-production-79aa.up.railway.app`) so emails link back.
 
+## OpenRouter credit (urgent)
+- [ ] The key in `OPENROUTER_API_KEY` ran out of credit on 28 Oct (OpenRouter answered "402: requires more credits").
+      On openrouter.ai → Keys, raise this key's limit or add credit. If Railway uses the same key, its bots can't answer
+      until then.
+
+## Backups (recommended)
+- [ ] Railway → pgvector service → **Backups** → turn on daily backups.
+- [ ] Optional: add `BACKUP_DATABASE_URL` and `BACKUP_PASSPHRASE` as GitHub repository secrets to switch on the daily
+      encrypted backup workflow. Details in `docs/BACKUPS.md`.
+
+## Scaling, only if you run more than one copy of the app
+- `REDIS_URL` (e.g. Railway's Redis template) makes rate limits shared between copies. Not needed with one replica.
+- Indexing and the scheduler still assume one replica; keep Railway at one replica for now.
+
 ## GitHub
 - [ ] Delete merged branches you no longer need (each merged PR page has a *Delete branch* button).
 - [ ] Optional: in GitHub > Settings > Branches, require the **CI** checks to pass before merging to `main`.

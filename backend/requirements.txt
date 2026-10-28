@@ -16,3 +16,4 @@ requests==2.34.2
 PyJWT==2.15.1
 sentry-sdk==2.19.2
 cryptography==50.0.2
+redis==5.2.1

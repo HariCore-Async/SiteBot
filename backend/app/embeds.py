@@ -1,6 +1,7 @@
 """Website embeds: the domain lock, server keys, visitor rate limits and the shapes the embed APIs return."""
 
 import hashlib
+import logging
 import re
 import secrets
 import threading
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .models import Chat, Embed, Feedback, Lead, Message, Site, UsageEvent, User
 from .usage import embed_spent_today, start_of_today
+from .verify import dns_value, meta_tag
 
 # Our widget and sitebot-client.js make their own random ids; server callers may pass their own user ids.
 VISITOR_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
@@ -134,15 +136,62 @@ def client_ip(request: Request) -> str:
     return forwarded.split(",")[0].strip() or (request.client.host if request.client else "")
 
 
-class RateLimiter:
-    """Sliding-window limits kept in memory. Good enough for one server; resets on restart."""
+_redis_client = None
+_redis_failed_at = 0.0
 
-    def __init__(self, rules: list[tuple[int, int]]):
+
+def _redis():
+    """A shared Redis connection when REDIS_URL is set (so several copies of the app share limits), else None.
+    After an error, limits fall back to this process's memory for a minute rather than failing requests."""
+    global _redis_client
+    if not settings.redis_url or time.monotonic() - _redis_failed_at < 60:
+        return None
+    if _redis_client is None:
+        import redis
+
+        _redis_client = redis.Redis.from_url(settings.redis_url, socket_timeout=1, socket_connect_timeout=1)
+    return _redis_client
+
+
+class RateLimiter:
+    """Sliding-window limits: in Redis when REDIS_URL is set, otherwise in this process's memory (one server; resets
+    on restart)."""
+
+    def __init__(self, rules: list[tuple[int, int]], name: str = "limit"):
         self.rules = rules  # (max requests, window seconds)
+        self.name = name
         self.hits: dict[str, deque] = {}
         self.lock = threading.Lock()
 
     def allow(self, key: str) -> bool:
+        r = _redis()
+        if r is not None:
+            try:
+                return self._allow_redis(r, key)
+            except Exception as e:  # noqa: BLE001  (any Redis problem: fall back, don't fail visitors)
+                global _redis_failed_at
+                _redis_failed_at = time.monotonic()
+                logging.getLogger(__name__).warning("Redis rate limiting unavailable, using memory for now: %s", e)
+        return self._allow_memory(key)
+
+    def _allow_redis(self, r, key: str) -> bool:
+        now = time.time()
+        longest = max(w for _, w in self.rules)
+        k = f"sitebot:rl:{self.name}:{key}"
+        pipe = r.pipeline()
+        pipe.zremrangebyscore(k, 0, now - longest)
+        for _, window in self.rules:
+            pipe.zcount(k, now - window, "+inf")
+        counts = pipe.execute()[1:]
+        if any(c >= limit for c, (limit, _) in zip(counts, self.rules)):
+            return False
+        pipe = r.pipeline()
+        pipe.zadd(k, {f"{now}:{secrets.token_hex(4)}": now})
+        pipe.expire(k, longest + 5)
+        pipe.execute()
+        return True
+
+    def _allow_memory(self, key: str) -> bool:
         now = time.monotonic()
         longest = max(w for _, w in self.rules)
         with self.lock:
@@ -159,12 +208,12 @@ class RateLimiter:
 
 
 # Questions cost money, so they're limited per visitor and per network address.
-visitor_limiter = RateLimiter([(6, 60), (60, 3600)])
-ip_limiter = RateLimiter([(20, 60), (300, 86400)])
+visitor_limiter = RateLimiter([(6, 60), (60, 3600)], "visitor")
+ip_limiter = RateLimiter([(20, 60), (300, 86400)], "ip")
 # Cheap reads (opening the widget, loading history) get a looser limit.
-read_limiter = RateLimiter([(60, 60)])
+read_limiter = RateLimiter([(60, 60)], "read")
 # A customer's server sends all its users' questions from one address, so server keys are limited per embed instead.
-server_limiter = RateLimiter([(120, 60), (3000, 3600)])
+server_limiter = RateLimiter([(120, 60), (3000, 3600)], "server")
 
 
 def embed_out(db: Session, e: Embed, site: Site) -> dict:
@@ -188,6 +237,11 @@ def embed_out(db: Session, e: Embed, site: Site) -> dict:
         ),
         "last_seen": {"origin": e.last_seen_origin, "at": e.last_seen_at.isoformat()} if e.last_seen_at else None,
         "weekly_report": e.weekly_report,
+        "verification": {
+            "verified_at": e.verified_at.isoformat() if e.verified_at else None, "via": e.verified_via,
+            "meta_tag": meta_tag(e.verify_token) if e.verify_token else "", "dns_name": site.domain,
+            "dns_value": dns_value(e.verify_token) if e.verify_token else "",
+        },
         "leads_open": db.scalar(select(func.count(Lead.id)).where(Lead.embed_id == e.id, Lead.status == "open")),
         "reviewed_by": e.reviewed_by, "reviewed_at": e.reviewed_at.isoformat() if e.reviewed_at else None,
         "review_note": e.review_note,
