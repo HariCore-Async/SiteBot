@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, money, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
 import { Tabs } from "./Tabs.jsx";
+import AIProviders, { modelChoices } from "./AdminAI.jsx";
 
 function Users({ me, onUsageChange }) {
   const [users, setUsers] = useState([]);
@@ -246,6 +247,11 @@ function Budget({ onUsageChange }) {
 }
 
 function Bots({ sites, refreshSites }) {
+  const [ai, setAi] = useState(null);
+  useEffect(() => {
+    api.get("/api/admin/ai").then(setAi).catch(() => setAi(null));
+  }, []);
+  const choices = modelChoices(ai);
   const [error, setError] = useState("");
   // Per-bot "Read PDFs" choice for the next re-index; defaults to the bot's current setting.
   const [pdfs, setPdfs] = useState({});
@@ -270,6 +276,7 @@ function Bots({ sites, refreshSites }) {
               <th>Status</th>
               <th>Pages</th>
               <th>Read PDFs</th>
+              <th>Answer model</th>
               <th>Indexed</th>
               <th />
             </tr>
@@ -299,6 +306,20 @@ function Bots({ sites, refreshSites }) {
                     />
                     {(pdfs[s.id] ?? s.include_pdfs) ? "On" : "Off"}
                   </label>
+                </td>
+                <td>
+                  <select
+                    aria-label={`Answer model for ${s.name} Chatbot`}
+                    value={s.answer_model || ""}
+                    onChange={(e) => act(() => api.patch(`/api/admin/sites/${s.id}/models`, { answer_model: e.target.value }))}
+                  >
+                    <option value="">Default</option>
+                    {choices.map(([r, l]) => (
+                      <option key={r} value={r}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td className="muted small">{timeAgo(s.indexed_at) || "—"}</td>
                 <td className="actions">
@@ -494,7 +515,7 @@ function Embeds() {
   );
 }
 
-const TABS = ["Users", "Access", "Bots", "Embeds", "Budget"];
+const TABS = ["Users", "Access", "Bots", "Embeds", "AI providers", "Budget"];
 
 export default function Admin({ me, sites, refreshSites, onUsageChange }) {
   const [tab, setTab] = useState("Users");
@@ -506,6 +527,7 @@ export default function Admin({ me, sites, refreshSites, onUsageChange }) {
       {tab === "Access" && <Access />}
       {tab === "Bots" && <Bots sites={sites} refreshSites={refreshSites} />}
       {tab === "Embeds" && <Embeds />}
+      {tab === "AI providers" && <AIProviders />}
       {tab === "Budget" && <Budget onUsageChange={onUsageChange} />}
     </div>
   );

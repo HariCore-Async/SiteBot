@@ -59,11 +59,11 @@ def event(kind: str, **data) -> str:
     return json.dumps({"type": kind, **data}) + "\n"
 
 
-def rewrite_question(db: Session, user: User, history: list[Message], question: str, embed_id: int | None = None) -> str:
+def rewrite_question(db: Session, user: User, history: list[Message], question: str, embed_id: int | None = None, site_id: int | None = None) -> str:
     convo = "\n".join(f"{m.role.upper()}: {m.content[:600]}" for m in history)
     try:
         text, usage = llm.complete(
-            settings.openrouter_fast_model,
+            "fast",
             [
                 {
                     "role": "system",
@@ -73,8 +73,9 @@ def rewrite_question(db: Session, user: User, history: list[Message], question: 
                 {"role": "user", "content": f"CONVERSATION:\n{convo}\n\nLATEST MESSAGE: {question}"},
             ],
             max_tokens=120,
+            site_id=site_id,
         )
-        record_usage(db, user.id, "rewrite", settings.openrouter_fast_model, usage, embed_id)
+        record_usage(db, user.id, "rewrite", usage.get("model", ""), usage, embed_id)
         return text.strip() or question
     except llm.LLMError as e:
         log.warning("Rewrite failed, using raw question: %s", e)
@@ -99,14 +100,14 @@ def split_sentences(answer: str) -> list[tuple[int, str]]:
     return [u for u in units if u[1]]
 
 
-def verify_answer(db: Session, user: User, hits: list[Hit], answer: str, embed_id: int | None = None) -> str | None:
+def verify_answer(db: Session, user: User, hits: list[Hit], answer: str, embed_id: int | None = None, site_id: int | None = None) -> str | None:
     """Removes sentences that state facts the excerpts don't. Returns the checked answer, or None if nothing is left."""
     units = split_sentences(answer)
     numbered = "\n".join(f"S{k}: {text}" for k, (_, text) in enumerate(units, 1))
 
     def flag_once() -> set[int]:
         text, usage = llm.complete(
-            settings.openrouter_fast_model,
+            "fast",
             [
                 {
                     "role": "system",
@@ -120,8 +121,9 @@ def verify_answer(db: Session, user: User, hits: list[Hit], answer: str, embed_i
                 {"role": "user", "content": f"CONTEXT:\n{format_context(hits)}\n\nANSWER SENTENCES:\n{numbered}"},
             ],
             max_tokens=60,
+            site_id=site_id,
         )
-        record_usage(db, user.id, "verify", settings.openrouter_fast_model, usage, embed_id)
+        record_usage(db, user.id, "verify", usage.get("model", ""), usage, embed_id)
         return {int(n) for n in re.findall(r"S(\d+)", text.upper())}
 
     try:
@@ -207,7 +209,7 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str, embed: Emb
         return
 
     try:
-        search_query = rewrite_question(db, user, history, question, embed_id) if history else question
+        search_query = rewrite_question(db, user, history, question, embed_id, site.id) if history else question
         hits, best_sim = retrieve(db, site.id, site.generation, search_query)
         if not hits or best_sim < settings.min_similarity:
             text = not_found_text(site)
@@ -222,7 +224,7 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str, embed: Emb
 
         # Hold back the first few characters so a NOT_FOUND reply never flashes on screen.
         answer, buffer, released, usage = "", "", False, {}
-        for kind, payload in llm.stream(settings.openrouter_model, messages):
+        for kind, payload in llm.stream("answer", messages, site_id=site.id):
             if kind == "usage":
                 usage = payload
                 continue
@@ -234,7 +236,7 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str, embed: Emb
                 if len(buffer) >= len(NOT_FOUND_TOKEN) + 2 and not buffer.lstrip().startswith(NOT_FOUND_TOKEN[:3]):
                     released = True
                     yield event("token", text=buffer)
-        record_usage(db, user.id, "answer", settings.openrouter_model, usage, embed_id)
+        record_usage(db, user.id, "answer", usage.get("model", ""), usage, embed_id)
         answer = answer.strip()
 
         if NOT_FOUND_TOKEN in answer[:20] or not answer:
@@ -253,7 +255,7 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str, embed: Emb
         cleaned = re.sub(r"\[(\d+)\]", lambda m: m.group(0) if 1 <= int(m.group(1)) <= len(hits) else "", answer)
 
         if settings.verify_answers:
-            checked = verify_answer(db, user, hits, cleaned, embed_id)
+            checked = verify_answer(db, user, hits, cleaned, embed_id, site.id)
             if checked is None:
                 text = not_found_text(site)
                 yield event("replace", text=text)

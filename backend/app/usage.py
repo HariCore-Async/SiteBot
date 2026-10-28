@@ -72,6 +72,7 @@ def record_usage(db: Session, user_id: int, kind: str, model: str, usage: dict |
         UsageEvent(
             user_id=user_id,
             embed_id=embed_id,
+            provider=str(usage.get("provider") or "")[:100],
             kind=kind,
             model=model,
             prompt_tokens=int(usage.get("prompt_tokens") or 0),

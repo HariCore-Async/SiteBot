@@ -46,6 +46,21 @@ Home → **Add a chatbot to your website** (or the sidebar's **Add to your websi
 - **Styling:** theme (light, dark or auto), font, corner rounding, header title, launcher icon and label, and custom CSS, which applies only inside the widget and has imports and `url()` removed.
 - **Testing locally:** a bot's real domain isn't `localhost`, so set `EMBED_DEV_ORIGINS=http://localhost:5500` for the backend, put the snippet (with `src="http://localhost:8000/embed.js"`) in a plain HTML page, serve it with `python -m http.server 5500`, and run `npm run build` so the backend serves the widget. Never set `EMBED_DEV_ORIGINS` on Railway.
 
+## AI providers
+
+Out of the box, answers use OpenRouter with `OPENROUTER_API_KEY` and the `OPENROUTER_MODEL` / `OPENROUTER_FAST_MODEL`
+models. Admins can connect other services in **Admin console → AI providers**:
+
+- **Providers:** OpenRouter, OpenAI, Anthropic, Google Gemini, Azure OpenAI, Hugging Face, or any OpenAI-compatible
+  server (Ollama, vLLM, LM Studio…) by its base URL. API keys are encrypted at rest (`PROVIDER_KEYS_SECRET`), write-only
+  in the UI (only the last 4 characters are shown), and each model has a **Test connection** button.
+- **Models:** add model IDs (Azure: deployment names) with their price per 1M input/output tokens, used to work out
+  cost when a provider doesn't report it (OpenRouter does).
+- **Which model answers:** a default model for answers and one for fast tasks (rewriting follow-ups, checking answers,
+  suggestions), plus an ordered **fallback** list tried when a model fails. **Admin console → Bots** can pick a different
+  answer model per bot. Streaming falls back only before the first word, so visitors never see two half-answers.
+- Usage records the provider and model of every call. Embeddings stay local (fastembed).
+
 ## Run locally
 
 ```bash

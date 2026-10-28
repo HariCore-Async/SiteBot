@@ -109,6 +109,9 @@ class Site(Base):
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Suggested starter questions, generated from the indexed pages on first request. None = not generated yet.
     suggestions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Admin's per-bot model choice (a providers "ref" such as "m:3"); None uses the default.
+    answer_model: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    fast_model: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class Page(Base):
@@ -222,6 +225,36 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class AIProvider(Base):
+    """An AI service an admin connected (OpenAI, Anthropic, Gemini, Azure, Hugging Face, any OpenAI-compatible URL…)."""
+
+    __tablename__ = "ai_providers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(30))  # see providers.KINDS
+    base_url: Mapped[str] = mapped_column(Text, default="")
+    # Encrypted with Fernet (providers.encrypt_key); never returned by the API.
+    api_key_enc: Mapped[str] = mapped_column(Text, default="")
+    api_version: Mapped[str] = mapped_column(String(40), default="")  # Azure only
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AIModel(Base):
+    """A model offered by a provider (for Azure, a deployment name), with prices for when the provider doesn't report cost."""
+
+    __tablename__ = "ai_models"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("ai_providers.id", ondelete="CASCADE"), index=True)
+    model: Mapped[str] = mapped_column(String(200))
+    label: Mapped[str] = mapped_column(String(200), default="")
+    input_per_m: Mapped[float] = mapped_column(Float, default=0.0)  # USD per 1M input tokens
+    output_per_m: Mapped[float] = mapped_column(Float, default=0.0)  # USD per 1M output tokens
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class Feedback(Base):
     """A website visitor's thumbs up or down on one answer, from the widget or the developer APIs."""
 
@@ -246,6 +279,7 @@ class UsageEvent(Base):
     # Set when a website visitor's question caused the call; user_id is then the embed's owner.
     embed_id: Mapped[int | None] = mapped_column(ForeignKey("embeds.id", ondelete="SET NULL"), index=True, nullable=True)
     model: Mapped[str] = mapped_column(String(200))
+    provider: Mapped[str] = mapped_column(String(100), default="")
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)

@@ -10,6 +10,13 @@ service's **Variables** tab (Railway redeploys automatically).
 - [ ] Your PC's clock was ~3 s behind; Windows Settings > Time & language > Date & time > *Sync now*. (Sign-in now
       tolerates 10 s of difference, so this is no longer required, just good practice.)
 
+## AI providers (Admin console > AI providers), optional
+- [ ] **Before adding any provider API key on Railway, set `PROVIDER_KEYS_SECRET`** to a long random string (same command
+      as above). Saved keys are encrypted with it. Without it they're encrypted with a key derived from `SECRET_KEY`, so
+      if you then change `SECRET_KEY`, saved provider keys stop working and must be re-entered. Easiest order:
+      1) set `PROVIDER_KEYS_SECRET`, 2) change `SECRET_KEY`, 3) add provider keys.
+- Your existing `OPENROUTER_API_KEY` keeps working as the default; nothing to do unless you want other providers.
+
 ## Error monitoring (Sentry), optional
 1. Create a free account at sentry.io and two projects: one **Python/FastAPI**, one **Browser JavaScript**.
 2. On Railway set:
