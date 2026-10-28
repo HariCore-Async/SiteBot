@@ -5,14 +5,26 @@ import { BotIcon } from "./Sidebar.jsx";
 import { Tabs } from "./Tabs.jsx";
 import AIProviders, { modelChoices } from "./AdminAI.jsx";
 
-function Users({ me, onUsageChange }) {
+function Users({ me, onUsageChange, billing }) {
   const [users, setUsers] = useState([]);
+  const [plans, setPlans] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [error, setError] = useState("");
   const load = useCallback(() => api.get("/api/admin/users").then(setUsers).catch((e) => setError(e.message)), []);
   useEffect(() => {
     load();
-  }, [load]);
+    if (billing) api.get("/api/admin/plans").then(setPlans).catch(() => {});
+  }, [load, billing]);
+
+  const setPlan = async (u, value) => {
+    setError("");
+    try {
+      await api.patch(`/api/admin/users/${u.id}/plan`, { plan_id: value ? Number(value) : null });
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
 
   const update = async (u, body) => {
     setError("");
@@ -37,6 +49,7 @@ function Users({ me, onUsageChange }) {
               <th>Role</th>
               <th>Used</th>
               <th>Limit (USD)</th>
+              {billing && <th>Plan</th>}
               <th>Last seen</th>
             </tr>
           </thead>
@@ -87,6 +100,18 @@ function Users({ me, onUsageChange }) {
                       {draft !== undefined && <button className="btn small primary">Save</button>}
                     </form>
                   </td>
+                  {billing && (
+                    <td>
+                      <select aria-label="Plan" value={u.plan_id ?? ""} onChange={(e) => setPlan(u, e.target.value)}>
+                        <option value="">No plan</option>
+                        {plans.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
                   <td className="muted small">{timeAgo(u.last_seen_at)}</td>
                 </tr>
               );
@@ -515,20 +540,160 @@ function Embeds() {
   );
 }
 
+const BLANK_PLAN = { name: "", price_usd_month: 0, credit_usd_month: 0, max_bots: 0, max_embeds: 0, active: true };
+
+// Billing scaffolding: plans are only records for now. Nothing is charged and no limit is enforced.
+function Plans() {
+  const [plans, setPlans] = useState([]);
+  const [draft, setDraft] = useState(BLANK_PLAN);
+  const [editing, setEditing] = useState(null);
+  const [error, setError] = useState("");
+  const [confirmAsk, confirmDialog] = useConfirm();
+  const load = useCallback(() => api.get("/api/admin/plans").then(setPlans).catch((e) => setError(e.message)), []);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const save = async (e) => {
+    e.preventDefault();
+    setError("");
+    const body = { ...draft, name: draft.name.trim() };
+    for (const k of ["price_usd_month", "credit_usd_month", "max_bots", "max_embeds"]) body[k] = Number(body[k]) || 0;
+    try {
+      if (editing) await api.put(`/api/admin/plans/${editing}`, body);
+      else await api.post("/api/admin/plans", body);
+      setDraft(BLANK_PLAN);
+      setEditing(null);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const remove = async (p) => {
+    const ok = await confirmAsk({
+      title: `Delete the ${p.name} plan?`,
+      message: p.users ? `${p.users} user(s) on it will have no plan.` : "No one is on it.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.del(`/api/admin/plans/${p.id}`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const field = (k, label, props = {}) => (
+    <label>
+      {label}
+      <input value={draft[k]} onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))} {...props} />
+    </label>
+  );
+
+  return (
+    <section>
+      <p className="muted">Plans are records only for now: nothing is charged and no limits are enforced.</p>
+      {error && <p className="error">{error}</p>}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Plan</th>
+              <th>Price / month</th>
+              <th>AI credit / month</th>
+              <th>Bots</th>
+              <th>Embeds</th>
+              <th>Users</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {plans.map((p) => (
+              <tr key={p.id}>
+                <td className="strong">
+                  {p.name} {!p.active && <span className="pill">Hidden</span>}
+                </td>
+                <td>{money(p.price_usd_month)}</td>
+                <td>{money(p.credit_usd_month)}</td>
+                <td>{p.max_bots || "Unlimited"}</td>
+                <td>{p.max_embeds || "Unlimited"}</td>
+                <td>{p.users}</td>
+                <td className="actions">
+                  <button
+                    className="btn ghost small"
+                    onClick={() => {
+                      setEditing(p.id);
+                      setDraft({ name: p.name, price_usd_month: p.price_usd_month, credit_usd_month: p.credit_usd_month, max_bots: p.max_bots, max_embeds: p.max_embeds, active: p.active });
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button className="btn ghost small danger" onClick={() => remove(p)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {!plans.length && (
+              <tr>
+                <td colSpan={7} className="muted">
+                  No plans yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <form className="plan-form" onSubmit={save}>
+        <h3>{editing ? "Edit plan" : "Add a plan"}</h3>
+        {field("name", "Name", { required: true, maxLength: 100 })}
+        {field("price_usd_month", "Price per month (USD)", { type: "number", min: 0, step: "0.01" })}
+        {field("credit_usd_month", "AI credit per month (USD)", { type: "number", min: 0, step: "0.01" })}
+        {field("max_bots", "Bots (0 = unlimited)", { type: "number", min: 0, step: 1 })}
+        {field("max_embeds", "Embeds (0 = unlimited)", { type: "number", min: 0, step: 1 })}
+        <label className="check">
+          <input type="checkbox" checked={draft.active} onChange={(e) => setDraft((d) => ({ ...d, active: e.target.checked }))} /> Offered
+        </label>
+        <div className="actions">
+          <button className="btn primary">{editing ? "Save" : "Add plan"}</button>
+          {editing && (
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setEditing(null);
+                setDraft(BLANK_PLAN);
+              }}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      </form>
+      {confirmDialog}
+    </section>
+  );
+}
+
 const TABS = ["Users", "Access", "Bots", "Embeds", "AI providers", "Budget"];
 
-export default function Admin({ me, sites, refreshSites, onUsageChange }) {
+export default function Admin({ me, sites, refreshSites, onUsageChange, billing = false }) {
   const [tab, setTab] = useState("Users");
+  const tabs = billing ? [...TABS, "Plans"] : TABS;
   return (
     <div className="page admin">
       <h1>Admin console</h1>
-      <Tabs label="Admin sections" value={tab} onChange={setTab} tabs={TABS.map((t) => [t, t])} />
-      {tab === "Users" && <Users me={me} onUsageChange={onUsageChange} />}
+      <Tabs label="Admin sections" value={tab} onChange={setTab} tabs={tabs.map((t) => [t, t])} />
+      {tab === "Users" && <Users me={me} onUsageChange={onUsageChange} billing={billing} />}
       {tab === "Access" && <Access />}
       {tab === "Bots" && <Bots sites={sites} refreshSites={refreshSites} />}
       {tab === "Embeds" && <Embeds />}
       {tab === "AI providers" && <AIProviders />}
       {tab === "Budget" && <Budget onUsageChange={onUsageChange} />}
+      {tab === "Plans" && billing && <Plans />}
     </div>
   );
 }

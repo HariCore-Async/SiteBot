@@ -3485,3 +3485,22 @@ td select {
 .verification code {
   font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+/* Admin: plans (billing scaffolding) */
+.plan-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+  max-width: 900px;
+}
+.plan-form h3,
+.plan-form .actions {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.plan-form label:not(.check) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}

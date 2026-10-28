@@ -183,6 +183,19 @@ class MemberUpdate(BaseModel):
     role: str = Field(pattern="^(viewer|editor)$")
 
 
+class PlanIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    price_usd_month: float = Field(default=0, ge=0, le=100000)
+    credit_usd_month: float = Field(default=0, ge=0, le=100000)
+    max_bots: int = Field(default=0, ge=0, le=100000)
+    max_embeds: int = Field(default=0, ge=0, le=100000)
+    active: bool = True
+
+
+class UserPlanIn(BaseModel):
+    plan_id: int | None = None
+
+
 class VerifyIn(BaseModel):
     method: str = Field(pattern="^(meta|dns)$")
 
@@ -279,5 +292,5 @@ def site_out(s: Site) -> dict:
 def user_out(u: User) -> dict:
     return {
         "id": u.id, "email": u.email, "username": u.username, "name": u.name, "picture": u.picture, "role": u.role,
-        "limit_usd": u.limit_usd, "has_password": bool(u.password_hash),
+        "limit_usd": u.limit_usd, "has_password": bool(u.password_hash), "plan_id": u.plan_id,
     }

@@ -201,7 +201,7 @@ export default function App() {
   } else if (view.type === "settings") {
     main = <Settings me={me} onUpdated={(u) => setMe((m) => ({ ...m, ...u }))} />;
   } else if (view.type === "admin" && me.role === "admin") {
-    main = <Admin me={me} sites={sites} refreshSites={refreshSites} onUsageChange={refreshUsage} />;
+    main = <Admin me={me} sites={sites} refreshSites={refreshSites} onUsageChange={refreshUsage} billing={!!config.billing_enabled} />;
   } else if (view.type === "progress" && siteById[view.siteId]) {
     main = (
       <AddSite

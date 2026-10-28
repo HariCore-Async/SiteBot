@@ -145,6 +145,7 @@ Keep one replica: indexing jobs run inside the web process.
 | `SCHEDULER_ENABLED` / `SCHEDULER_INTERVAL_SECONDS` | `true` / `600` | background jobs: scheduled re-index, weekly reports |
 | `INDEX_CONCURRENCY` | `1` | websites indexed at once; the rest wait in line (and resume after a restart) |
 | `REDIS_URL` | *(empty)* | shared rate limits across several app copies; in-memory when empty |
+| `BILLING_ENABLED` | `false` | shows the admin **Plans** screen (records only: nothing is charged or enforced); see `docs/BILLING.md` |
 
 Backups: see [docs/BACKUPS.md](docs/BACKUPS.md).
 | `SENTRY_DSN` / `SENTRY_BROWSER_DSN` | *(empty)* | error monitoring for the server / browsers; off when empty |

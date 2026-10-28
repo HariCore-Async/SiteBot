@@ -39,8 +39,25 @@ class User(Base):
     # Proven by a Google sign-in or by entering the one-time code we emailed.
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     limit_usd: Mapped[float] = mapped_column(Float, default=settings.default_user_limit_usd)
+    # Billing scaffolding (BILLING_ENABLED): the plan an admin assigned. Not enforced or charged yet.
+    plan_id: Mapped[int | None] = mapped_column(ForeignKey("plans.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Plan(Base):
+    """A subscription plan (billing scaffolding: stored and assigned, not charged or enforced yet). See docs/BILLING.md."""
+
+    __tablename__ = "plans"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    price_usd_month: Mapped[float] = mapped_column(Float, default=0.0)
+    credit_usd_month: Mapped[float] = mapped_column(Float, default=0.0)  # AI spend included each month
+    max_bots: Mapped[int] = mapped_column(Integer, default=0)  # 0: unlimited
+    max_embeds: Mapped[int] = mapped_column(Integer, default=0)  # 0: unlimited
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AccessGrant(Base):
