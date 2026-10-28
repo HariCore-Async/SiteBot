@@ -7,7 +7,7 @@ import { SearchIcon, TrashIcon } from "./Icons.jsx";
 const STATUS_LABEL = { queued: "Queued", crawling: "Reading", embedding: "Learning", failed: "Failed" };
 
 /** How many cards fit on screen without scrolling: the grid's columns times the rows that fit below its top edge. */
-function useFitPageSize(gridRef, reserve, deps) {
+export function useFitPageSize(gridRef, reserve, deps) {
   const [size, setSize] = useState(12);
   useLayoutEffect(() => {
     const measure = () => {
@@ -34,7 +34,7 @@ function useFitPageSize(gridRef, reserve, deps) {
 }
 
 /** Page numbers 1, 2, 3 …, with gaps once there are many pages. */
-function Pager({ page, pages, onPage }) {
+export function Pager({ page, pages, onPage }) {
   if (pages <= 1) return <div className="pager" />;
   const shown = [...new Set([1, page - 1, page, page + 1, pages].filter((n) => n >= 1 && n <= pages))].sort((a, b) => a - b);
   const items = [];

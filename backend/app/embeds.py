@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .models import Chat, Embed, Feedback, Site, UsageEvent, User
-from .usage import embed_spent_today
+from .usage import embed_spent_today, start_of_today
 
 # Our widget and sitebot-client.js make their own random ids; server callers may pass their own user ids.
 VISITOR_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
@@ -177,6 +177,7 @@ def embed_out(db: Session, e: Embed, site: Site) -> dict:
         "feedback": {"up": ratings.get("up", 0), "down": ratings.get("down", 0)},
         "spent_today_usd": round(embed_spent_today(db, e.id), 6), "spent_total_usd": round(float(total), 6),
         "conversations": db.scalar(select(func.count(Chat.id)).where(Chat.embed_id == e.id)),
+        "chats_today": db.scalar(select(func.count(Chat.id)).where(Chat.embed_id == e.id, Chat.updated_at >= start_of_today())),
         "reviewed_by": e.reviewed_by, "reviewed_at": e.reviewed_at.isoformat() if e.reviewed_at else None,
         "created_at": e.created_at.isoformat(),
         "site": {"id": site.id, "name": site.name, "domain": site.domain, "favicon": site.favicon, "ready": site.generation > 0},

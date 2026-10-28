@@ -78,7 +78,7 @@ function Users({ me, onUsageChange }) {
                       <input
                         type="number"
                         min="0"
-                        step="0.1"
+                        step="0.01"
                         value={draft ?? u.limit_usd}
                         onChange={(e) => setDrafts((d) => ({ ...d, [u.id]: e.target.value }))}
                       />
@@ -434,7 +434,7 @@ function Embeds() {
                         <input
                           type="number"
                           min="0"
-                          step="0.1"
+                          step="0.01"
                           aria-label="Daily limit in USD"
                           value={cap ?? e.daily_cap_usd}
                           onChange={(ev) => setCaps((c) => ({ ...c, [e.id]: ev.target.value }))}
