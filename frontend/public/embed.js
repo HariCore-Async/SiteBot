@@ -12,6 +12,8 @@
   var base = new URL(script.src).origin;
   var frame = document.createElement("iframe");
   frame.src = base + "/widget/" + encodeURIComponent(key) + "?origin=" + encodeURIComponent(location.origin);
+  // The page (no query string or #fragment, which may hold personal data) for page-aware suggested questions.
+  frame.src += "&page=" + encodeURIComponent(location.origin + location.pathname);
   // data-test: SiteBot's own "Test it" page, which works before approval for the signed-in owner.
   if (script.hasAttribute("data-test")) frame.src += "&test=1";
   frame.title = "Chat with us";
@@ -47,10 +49,10 @@
     frame.style.visibility = "visible";
     open = !!e.data.open;
     if (e.data.position === "left" || e.data.position === "right") side = e.data.position;
-    // A launcher with a label is wider than the round bubble.
+    // A launcher with a label is wider than the round bubble, and a proactive greeting sits above it.
     var size = e.data.size;
     if (size && size.width > 0 && size.height > 0) {
-      CLOSED = { width: Math.min(size.width, 360) + "px", height: Math.min(size.height, 160) + "px" };
+      CLOSED = { width: Math.min(size.width, 360) + "px", height: Math.min(size.height, 320) + "px" };
     }
     place(open);
   });

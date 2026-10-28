@@ -22,6 +22,7 @@ os.environ.update(
     VERIFY_ANSWERS="true",
     SENTRY_DSN="",
     APP_URL="",
+    SCHEDULER_ENABLED="false",
 )
 
 import jwt  # noqa: E402

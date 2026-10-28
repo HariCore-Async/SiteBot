@@ -100,6 +100,9 @@ class EmbedStyle(BaseModel):
     radius: int = Field(default=16, ge=0, le=28)
     theme: str = Field(default="light", pattern="^(light|dark|auto)$")
     custom_css: str = Field(default="", max_length=5000)
+    # Pop the greeting up next to the bubble after this many seconds (0: don't); shown once per visit.
+    proactive_seconds: int = Field(default=0, ge=0, le=120)
+    proactive_text: str = Field(default="", max_length=200)  # empty: the greeting
 
 
 class EmbedUpdate(BaseModel):
@@ -109,6 +112,7 @@ class EmbedUpdate(BaseModel):
     enabled: bool | None = None
     style: EmbedStyle | None = None
     restrict_to_domain: bool | None = None  # admins only
+    weekly_report: bool | None = None
 
 
 class EmbedReview(BaseModel):
@@ -168,6 +172,19 @@ class LeadIn(BaseModel):
     name: str = Field(default="", max_length=200)
     message: str = Field(default="", max_length=2000)
     origin: str = Field(default="", max_length=300)
+
+
+class MemberIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    role: str = Field(default="viewer", pattern="^(viewer|editor)$")
+
+
+class MemberUpdate(BaseModel):
+    role: str = Field(pattern="^(viewer|editor)$")
+
+
+class ScheduleIn(BaseModel):
+    reindex_schedule: str = Field(pattern="^(off|daily|weekly)$")
 
 
 class LeadUpdate(BaseModel):
@@ -249,6 +266,7 @@ def site_out(s: Site) -> dict:
         "chunks_done": s.chunks_done,
         "indexed_at": s.indexed_at.isoformat() if s.indexed_at else None,
         "answer_model": s.answer_model,
+        "reindex_schedule": s.reindex_schedule,
         "fast_model": s.fast_model,
         "created_at": s.created_at.isoformat(),
     }

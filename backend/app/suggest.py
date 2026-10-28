@@ -85,6 +85,39 @@ def _generate(db: Session, site: Site, user: User) -> list[str]:
     return questions
 
 
+_question_vectors: dict[str, list[float]] = {}
+
+
+def for_page(db: Session, site: Site, questions: list[str], page_url: str) -> list[str]:
+    """The site's suggested questions, most relevant to the visitor's current page first (by similarity to that page's
+    first indexed passage). Unknown pages keep the usual order."""
+    from .crawler import canonical
+    from .embeddings import embed_query
+
+    if not questions or not page_url.startswith(("http://", "https://")):
+        return questions
+    try:
+        url = canonical(page_url)
+    except ValueError:
+        return questions
+    page_vec = db.scalar(
+        select(Chunk.embedding).where(Chunk.site_id == site.id, Chunk.generation == site.generation, Chunk.url == url).order_by(Chunk.id).limit(1)
+    )
+    if page_vec is None:
+        return questions
+    page_vec = list(page_vec)
+
+    def score(q: str) -> float:
+        vec = _question_vectors.get(q)
+        if vec is None:
+            vec = _question_vectors[q] = embed_query(q)
+            if len(_question_vectors) > 5000:
+                _question_vectors.clear()
+        return sum(a * b for a, b in zip(page_vec, vec))  # both are normalised, so this is cosine similarity
+
+    return sorted(questions, key=score, reverse=True)
+
+
 def get_suggestions(db: Session, site: Site, user: User) -> list[str]:
     if site.generation == 0:
         return []

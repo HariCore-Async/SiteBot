@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # Public address of this app (e.g. https://sitebot.example.com), used for links in notification emails.
     app_url: str = ""
 
+    # Background jobs (scheduled re-indexing, weekly report emails).
+    scheduler_enabled: bool = True
+    scheduler_interval_seconds: int = 600
+
     # Error monitoring with Sentry. Off unless a DSN is set; the browser DSN is public by design.
     sentry_dsn: str = ""
     sentry_browser_dsn: str = ""

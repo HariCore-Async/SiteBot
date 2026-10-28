@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import accounts, auth, knowledge, llm, providers
+from . import accounts, auth, knowledge, llm, providers, scheduler
 from .auth import admin_user, current_user, email_domain, is_org_domain, login_user
 from .chat import answer_stream
 from .config import settings
@@ -29,12 +29,12 @@ from .embeds import (
     insights, new_key, new_secret, note_seen, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
 from .ingest import is_running, request_stop, start_ingestion
-from .models import AccessGrant, AIModel, AIProvider, Chat, Embed, Feedback, Knowledge, Lead, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
+from .models import AccessGrant, AIModel, AIProvider, Chat, Embed, EmbedMember, Feedback, Knowledge, Lead, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
 from .knowledge import knowledge_out
 from .providers import encrypt_key, provider_out
-from .suggest import get_suggestions
+from .suggest import for_page, get_suggestions
 from .schemas import (
-    AddSite, AdminSettingsIn, AIDefaults, AITest, AnswerIn, Ask, DocumentIn, LeadIn, LeadUpdate, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, AdminSettingsIn, AIDefaults, AITest, AnswerIn, Ask, DocumentIn, LeadIn, LeadUpdate, MemberIn, MemberUpdate, ScheduleIn, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     ServerAsk, ServerFeedback, VerifyCode, VisitorAsk, VisitorFeedback, site_out, user_out,
 )
 from .xlsx import to_xlsx
@@ -57,6 +57,7 @@ async def lifespan(_: FastAPI):
     init_db()
     # Load the embedding model in the background so the first question isn't slow.
     threading.Thread(target=warm_up, daemon=True).start()
+    scheduler.start()
     yield
 
 
@@ -475,17 +476,108 @@ def ask(chat_id: int, body: Ask, user: User = Depends(current_user), db: Session
 
 # ---------- Website embeds (owner) ----------
 
-def own_embed(db: Session, embed_id: int, user: User) -> Embed:
+ROLE_RANK = {"viewer": 1, "editor": 2, "owner": 3}
+
+
+def embed_role(db: Session, e: Embed, user: User) -> str | None:
+    """owner, or the role a teammate was given (by email), or None."""
+    if e.owner_id == user.id:
+        return "owner"
+    return db.scalar(select(EmbedMember.role).where(EmbedMember.embed_id == e.id, EmbedMember.email == user.email.lower()))
+
+
+def own_embed(db: Session, embed_id: int, user: User, need: str = "owner") -> Embed:
+    """The embed, if this user may do what `need` says: "viewer" reads, "editor" changes design, knowledge and leads,
+    "owner" handles keys, the team and removal."""
     e = db.get(Embed, embed_id)
-    if not e or e.owner_id != user.id:
+    role = embed_role(db, e, user) if e else None
+    if not role:
         raise HTTPException(404, "Embed not found")
+    if ROLE_RANK[role] < ROLE_RANK[need]:
+        raise HTTPException(403, "Your role on this chatbot can't do that. Ask its owner.")
     return e
+
+
+def embed_view(db: Session, e: Embed, user: User) -> dict:
+    return {**embed_out(db, e, db.get(Site, e.site_id)), "my_role": embed_role(db, e, user)}
 
 
 @app.get("/api/embeds")
 def list_embeds(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    embeds = db.scalars(select(Embed).where(Embed.owner_id == user.id).order_by(Embed.created_at.desc())).all()
-    return [embed_out(db, e, db.get(Site, e.site_id)) for e in embeds]
+    shared = select(EmbedMember.embed_id).where(EmbedMember.email == user.email.lower())
+    embeds = db.scalars(
+        select(Embed).where((Embed.owner_id == user.id) | Embed.id.in_(shared)).order_by(Embed.created_at.desc())
+    ).all()
+    return [embed_view(db, e, user) for e in embeds]
+
+
+# ---------- Website embeds: the team ----------
+
+def member_out(m: EmbedMember, db: Session) -> dict:
+    u = db.scalar(select(User).where(User.email == m.email))
+    return {"id": m.id, "email": m.email, "role": m.role, "name": u.name if u else "", "joined": bool(u),
+            "invited_by": m.invited_by, "created_at": m.created_at.isoformat()}
+
+
+@app.get("/api/embeds/{embed_id}/team")
+def embed_team(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user, "viewer")
+    owner = db.get(User, e.owner_id)
+    members = db.scalars(select(EmbedMember).where(EmbedMember.embed_id == e.id).order_by(EmbedMember.created_at)).all()
+    return {"owner": {"name": owner.name, "email": owner.email}, "members": [member_out(m, db) for m in members]}
+
+
+@app.post("/api/embeds/{embed_id}/team")
+def invite_member(embed_id: int, body: MemberIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user, "owner")
+    email = body.email.strip().lower()
+    if not accounts.EMAIL_RE.match(email):
+        raise HTTPException(400, "Enter a valid email address.")
+    if email == db.get(User, e.owner_id).email.lower():
+        raise HTTPException(400, "That's the owner.")
+    m = db.scalar(select(EmbedMember).where(EmbedMember.embed_id == e.id, EmbedMember.email == email))
+    new = m is None
+    if new:
+        if db.scalar(select(func.count(EmbedMember.id)).where(EmbedMember.embed_id == e.id)) >= 50:
+            raise HTTPException(400, "A chatbot can have up to 50 teammates.")
+        m = EmbedMember(embed_id=e.id, email=email, invited_by=user.email)
+        db.add(m)
+    m.role = body.role
+    db.commit()
+    if new:
+        site = db.get(Site, e.site_id)
+        accounts.notify(
+            [email],
+            f"SiteBot: {user.name or user.email} added you to {site.name} Chatbot",
+            f"{user.name} ({user.email}) gave you {body.role} access to {site.name} Chatbot on SiteBot. Sign in with this email "
+            "address and open Add a chatbot to your website to find it." + app_link(f"#/website/{e.id}"),
+        )
+    return member_out(m, db)
+
+
+@app.patch("/api/embeds/{embed_id}/team/{member_id}")
+def change_member(embed_id: int, member_id: int, body: MemberUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user, "owner")
+    m = db.get(EmbedMember, member_id)
+    if not m or m.embed_id != e.id:
+        raise HTTPException(404, "Not found")
+    m.role = body.role
+    db.commit()
+    return member_out(m, db)
+
+
+@app.delete("/api/embeds/{embed_id}/team/{member_id}")
+def remove_member(embed_id: int, member_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """The owner removes a teammate, or a teammate leaves."""
+    e = own_embed(db, embed_id, user, "viewer")
+    m = db.get(EmbedMember, member_id)
+    if not m or m.embed_id != e.id:
+        raise HTTPException(404, "Not found")
+    if embed_role(db, e, user) != "owner" and m.email != user.email.lower():
+        raise HTTPException(403, "Only the owner can remove teammates.")
+    db.delete(m)
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/embeds")
@@ -515,7 +607,7 @@ def request_embed(body: EmbedIn, user: User = Depends(current_user), db: Session
             f"{user.name} ({user.email}) asked to put {site.name} Chatbot on {site.domain}.\n\n"
             f"Approve or reject it in SiteBot: Admin console > Embeds.{app_link('#/website')}",
         )
-    return embed_out(db, e, site)
+    return embed_view(db, e, user)
 
 
 def app_link(path: str = "") -> str:
@@ -525,13 +617,13 @@ def app_link(path: str = "") -> str:
 
 @app.patch("/api/embeds/{embed_id}")
 def update_embed(embed_id: int, body: EmbedUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    e = own_embed(db, embed_id, user)
+    e = own_embed(db, embed_id, user, "editor")
     if body.restrict_to_domain is not None:
         # Lifting the domain lock lets any website spend the owner's credits, so it's an admin's call.
         if user.role != "admin":
             raise HTTPException(403, "Only an admin can change which websites may use this chatbot.")
         e.restrict_to_domain = body.restrict_to_domain
-    for field in ("color", "greeting", "position", "enabled"):
+    for field in ("color", "greeting", "position", "enabled", "weekly_report"):
         value = getattr(body, field)
         if value is not None:
             setattr(e, field, value.strip() if isinstance(value, str) else value)
@@ -543,7 +635,7 @@ def update_embed(embed_id: int, body: EmbedUpdate, user: User = Depends(current_
             style["launcher_icon"] = "chat"
         e.style = style
     db.commit()
-    return embed_out(db, e, db.get(Site, e.site_id))
+    return embed_view(db, e, user)
 
 
 @app.post("/api/embeds/{embed_id}/rotate-key")
@@ -552,7 +644,7 @@ def rotate_embed_key(embed_id: int, user: User = Depends(current_user), db: Sess
     e = own_embed(db, embed_id, user)
     e.key = new_key()
     db.commit()
-    return embed_out(db, e, db.get(Site, e.site_id))
+    return embed_view(db, e, user)
 
 
 @app.post("/api/embeds/{embed_id}/server-key")
@@ -562,7 +654,7 @@ def make_server_key(embed_id: int, user: User = Depends(current_user), db: Sessi
     secret = new_secret()
     e.secret_hash, e.secret_hint, e.secret_created_at, e.secret_last_used_at = hash_secret(secret), secret[-4:], utcnow(), None
     db.commit()
-    return {**embed_out(db, e, db.get(Site, e.site_id)), "secret": secret}
+    return {**embed_view(db, e, user), "secret": secret}
 
 
 @app.delete("/api/embeds/{embed_id}/server-key")
@@ -570,7 +662,7 @@ def revoke_server_key(embed_id: int, user: User = Depends(current_user), db: Ses
     e = own_embed(db, embed_id, user)
     e.secret_hash, e.secret_hint, e.secret_created_at, e.secret_last_used_at = None, "", None, None
     db.commit()
-    return embed_out(db, e, db.get(Site, e.site_id))
+    return embed_view(db, e, user)
 
 
 @app.delete("/api/embeds/{embed_id}")
@@ -582,7 +674,7 @@ def delete_embed(embed_id: int, user: User = Depends(current_user), db: Session 
 
 @app.get("/api/embeds/{embed_id}/chats")
 def embed_chats(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    e = own_embed(db, embed_id, user)
+    e = own_embed(db, embed_id, user, "viewer")
     return [
         {"id": c.id, "title": c.title, "visitor": (c.visitor_id or "")[:6], "origin": c.origin, "is_test": c.is_test,
          "messages": n, "unanswered": missed, "updated_at": c.updated_at.isoformat()}
@@ -615,7 +707,7 @@ def embed_chat_rows(db: Session, e: Embed, limit: int = 500, since=None, until=N
 
 @app.get("/api/embeds/{embed_id}/insights")
 def embed_insights(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return insights(db, own_embed(db, embed_id, user))
+    return insights(db, own_embed(db, embed_id, user, "viewer"))
 
 
 @app.get("/api/embeds/{embed_id}/export")
@@ -624,7 +716,7 @@ def export_conversations(
     user: User = Depends(current_user), db: Session = Depends(get_db),
 ):
     """Every message of the matching conversations, one row each, as CSV or Excel. Dates are YYYY-MM-DD, end inclusive."""
-    e = own_embed(db, embed_id, user)
+    e = own_embed(db, embed_id, user, "viewer")
     try:
         since = datetime.fromisoformat(start).replace(tzinfo=timezone.utc) if start else None
         until = datetime.fromisoformat(end).replace(tzinfo=timezone.utc) + timedelta(days=1) if end else None
@@ -673,7 +765,7 @@ def with_feedback(db: Session, msgs: list[dict]) -> list[dict]:
 
 @app.get("/api/embeds/{embed_id}/chats/{chat_id}/messages")
 def embed_chat_messages(embed_id: int, chat_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    e = own_embed(db, embed_id, user)
+    e = own_embed(db, embed_id, user, "viewer")
     chat = db.get(Chat, chat_id)
     if not chat or chat.embed_id != e.id:
         raise HTTPException(404, "Chat not found")
@@ -682,14 +774,19 @@ def embed_chat_messages(embed_id: int, chat_id: int, user: User = Depends(curren
 
 # ---------- Teaching a bot: the owner's own answers and documents ----------
 
-def own_site(db: Session, site_id: int, user: User) -> Site:
-    """A bot its creator (or an admin) may teach. Bots are shared, so this is the person who added it."""
+def own_site(db: Session, site_id: int, user: User, need: str = "editor") -> Site:
+    """A bot this user may teach (or, with need="viewer", see what it was taught): its creator, an admin, or a teammate
+    on one of its website embeds with at least that role. Bots are shared, so this isn't everyone who chats with it."""
     site = db.get(Site, site_id)
     if not site:
         raise HTTPException(404, "Bot not found")
-    if site.created_by != user.id and user.role != "admin":
-        raise HTTPException(403, "Only the person who added this chatbot, or an admin, can teach it.")
-    return site
+    if site.created_by == user.id or user.role == "admin":
+        return site
+    for e in db.scalars(select(Embed).where(Embed.site_id == site.id)):
+        role = embed_role(db, e, user)
+        if role and ROLE_RANK[role] >= ROLE_RANK[need]:
+            return site
+    raise HTTPException(403, "Only the person who added this chatbot, its editors, or an admin can teach it.")
 
 
 def own_knowledge(db: Session, site: Site, knowledge_id: int) -> Knowledge:
@@ -701,9 +798,18 @@ def own_knowledge(db: Session, site: Site, knowledge_id: int) -> Knowledge:
 
 @app.get("/api/sites/{site_id}/knowledge")
 def list_knowledge(site_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    site = own_site(db, site_id, user)
+    site = own_site(db, site_id, user, "viewer")
     items = db.scalars(select(Knowledge).where(Knowledge.site_id == site.id).order_by(Knowledge.updated_at.desc())).all()
     return [knowledge_out(k) for k in items]
+
+
+@app.patch("/api/sites/{site_id}/schedule")
+def set_schedule(site_id: int, body: ScheduleIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Re-read the website off / daily / weekly. Only changed content is re-embedded, so updates are cheap."""
+    site = own_site(db, site_id, user)
+    site.reindex_schedule = body.reindex_schedule
+    db.commit()
+    return site_out(site)
 
 
 @app.post("/api/sites/{site_id}/knowledge/answers")
@@ -745,13 +851,13 @@ def lead_out(lead: Lead) -> dict:
 
 @app.get("/api/embeds/{embed_id}/leads")
 def embed_leads(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    e = own_embed(db, embed_id, user)
+    e = own_embed(db, embed_id, user, "viewer")
     return [lead_out(x) for x in db.scalars(select(Lead).where(Lead.embed_id == e.id).order_by(Lead.created_at.desc()).limit(500))]
 
 
 @app.patch("/api/embeds/{embed_id}/leads/{lead_id}")
 def update_lead(embed_id: int, lead_id: int, body: LeadUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    e = own_embed(db, embed_id, user)
+    e = own_embed(db, embed_id, user, "editor")
     lead = db.get(Lead, lead_id)
     if not lead or lead.embed_id != e.id:
         raise HTTPException(404, "Not found")
@@ -843,13 +949,19 @@ def bot_info(db: Session, e: Embed, site: Site, owner: User) -> dict:
 
 
 @app.get("/api/public/{key}/config")
-def widget_config(key: str, request: Request, origin: str = "", preview: bool = False, db: Session = Depends(get_db)):
+def widget_config(
+    key: str, request: Request, origin: str = "", preview: bool = False, page: str = "", db: Session = Depends(get_db)
+):
     limit_reads(request)
     e, site, owner = live_embed(db, request, key, origin, preview)
     # Every page load on a website asks for this, so it doubles as "Check installation". Previews don't count.
     if not (preview and not is_cross_site(request)):
         note_seen(db, e, effective_origin(request, origin))
-    return {**bot_info(db, e, site, owner), "color": e.color, "position": e.position, "style": style_of(e)}
+    info = bot_info(db, e, site, owner)
+    if page:
+        # Page-aware suggestions: the questions closest to the page the visitor is reading come first.
+        info["suggestions"] = for_page(db, site, get_suggestions(db, site, owner), page[:500])[:4]
+    return {**info, "color": e.color, "position": e.position, "style": style_of(e)}
 
 
 @app.get("/api/public/{key}/messages")

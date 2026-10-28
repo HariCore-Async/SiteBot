@@ -278,6 +278,23 @@ function DesignTab({ embed, onChanged, onDirty }) {
           <span>Corner rounding: {draft.style.radius}px</span>
           <input type="range" min="0" max="28" value={draft.style.radius} onChange={(e) => setStyle("radius", Number(e.target.value))} />
         </label>
+        <div className="embed-fields">
+          <label className="field">
+            <span>Pop up a greeting</span>
+            <select value={draft.style.proactive_seconds} onChange={(e) => setStyle("proactive_seconds", Number(e.target.value))}>
+              <option value={0}>Off</option>
+              {[5, 10, 20, 30, 60].map((s) => (
+                <option key={s} value={s}>
+                  After {s} seconds
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Pop-up text</span>
+            <input maxLength={200} disabled={!draft.style.proactive_seconds} placeholder="The greeting" value={draft.style.proactive_text} onChange={(e) => setStyle("proactive_text", e.target.value)} />
+          </label>
+        </div>
         <label className="field">
           <span>Greeting</span>
           <textarea
@@ -305,7 +322,7 @@ function DesignTab({ embed, onChanged, onDirty }) {
         </details>
         {error && <p className="error">{error}</p>}
         <div className="embed-actions">
-          <button className="btn primary small" disabled={!dirty || saving} onClick={save}>
+          <button className="btn primary small" disabled={!dirty || saving || embed.my_role === "viewer"} title={embed.my_role === "viewer" ? "Viewers can't change the design" : ""} onClick={save}>
             {saving ? "Saving…" : "Save changes"}
           </button>
           {dirty && (
@@ -527,7 +544,11 @@ function InstallTab({ embed, sub, onSub, onChanged }) {
             Ask from your own backend with a secret server key, then show the answers in any UI. Usage, limits and conversations work the same and show up here.
             Full reference: <code>docs/API.md</code> in the SiteBot repo.
           </p>
-          <ServerKey embed={embed} onChanged={onChanged} />
+          {embed.my_role === "owner" ? (
+            <ServerKey embed={embed} onChanged={onChanged} />
+          ) : (
+            <p className="info-note">Only the owner can create or change the server key.</p>
+          )}
           <Tabs tabs={SERVER_EXAMPLES} value={serverLang} onChange={setServerLang} className="code-tabs" />
           <CodeBlock code={ex[serverLang]} />
         </div>
@@ -748,6 +769,165 @@ function Insights({ embed, onTeach }) {
 
 // ---------- Usage & settings ----------
 
+/** Keep the bot up to date (scheduled re-index of its website) and the weekly report email. */
+function UpdatesAndReports({ embed, onChanged }) {
+  const [error, setError] = useState("");
+  const canEdit = embed.my_role !== "viewer";
+  const refresh = async () => onChanged((await api.get("/api/embeds")).find((x) => x.id === embed.id) || embed);
+  return (
+    <section className="way">
+      <strong>Updates and reports</strong>
+      <div className="key-row">
+        <div>
+          <div className="small">Re-read {embed.site.domain} automatically</div>
+          <div className="muted small">
+            Only pages that changed are learned again, so updates are quick and cheap.
+            {embed.site.indexed_at ? ` Last updated ${timeAgo(embed.site.indexed_at)}.` : ""}
+          </div>
+        </div>
+        <select
+          aria-label="Re-read the website"
+          value={embed.site.reindex_schedule || "off"}
+          disabled={!canEdit}
+          onChange={async (e) => {
+            setError("");
+            try {
+              await api.patch(`/api/sites/${embed.site_id}/schedule`, { reindex_schedule: e.target.value });
+              await refresh();
+            } catch (err) {
+              setError(err.message);
+            }
+          }}
+        >
+          <option value="off">Off</option>
+          <option value="daily">Every day</option>
+          <option value="weekly">Every week</option>
+        </select>
+      </div>
+      <div className="key-row">
+        <div>
+          <div className="small">Weekly email report</div>
+          <div className="muted small">Conversations, most asked and unanswered questions, leads and spend, emailed to the owner every week there were chats.</div>
+        </div>
+        <button
+          role="switch"
+          aria-checked={embed.weekly_report}
+          aria-label="Weekly email report"
+          className={`switch ${embed.weekly_report ? "on" : ""}`}
+          disabled={embed.my_role !== "owner"}
+          onClick={async () => {
+            try {
+              onChanged(await api.patch(`/api/embeds/${embed.id}`, { weekly_report: !embed.weekly_report }));
+            } catch (err) {
+              setError(err.message);
+            }
+          }}
+        >
+          <span />
+        </button>
+      </div>
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+/** The people who can see or change this website chatbot. */
+function Team({ embed, me, onLeft }) {
+  const [team, setTeam] = useState(null);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("viewer");
+  const [error, setError] = useState("");
+  const [confirmAsk, confirmDialog] = useConfirm();
+  const isOwner = embed.my_role === "owner";
+  const load = useCallback(() => api.get(`/api/embeds/${embed.id}/team`).then(setTeam).catch((e) => setError(e.message)), [embed.id]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const act = async (fn) => {
+    setError("");
+    try {
+      await fn();
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  if (!team) return null;
+  return (
+    <section className="way team">
+      <strong>Team</strong>
+      <p className="muted small">Viewers see conversations, leads and insights. Editors can also change the design, teach the bot and handle leads. Only the owner manages keys, the team and removal.</p>
+      <ul className="team-list">
+        <li>
+          <span>
+            {team.owner.name} <span className="muted small">{team.owner.email}</span>
+          </span>
+          <span className="pill">Owner</span>
+        </li>
+        {team.members.map((m) => (
+          <li key={m.id}>
+            <span>
+              {m.name || m.email} {m.name && <span className="muted small">{m.email}</span>}
+              {!m.joined && <span className="muted small"> · hasn't signed in yet</span>}
+            </span>
+            {isOwner ? (
+              <span className="row-actions">
+                <select aria-label={`Role for ${m.email}`} value={m.role} onChange={(e) => act(() => api.patch(`/api/embeds/${embed.id}/team/${m.id}`, { role: e.target.value }))}>
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                </select>
+                <button className="link-btn small danger-link" onClick={() => act(() => api.del(`/api/embeds/${embed.id}/team/${m.id}`))}>
+                  Remove
+                </button>
+              </span>
+            ) : m.email === me.email.toLowerCase() ? (
+              <span className="row-actions">
+                <span className="pill">{m.role === "editor" ? "Editor (you)" : "Viewer (you)"}</span>
+                <button
+                  className="link-btn small danger-link"
+                  onClick={async () => {
+                    const ok = await confirmAsk({ title: "Leave this chatbot's team?", message: "You'll lose access until the owner adds you again.", confirmLabel: "Leave", danger: true });
+                    if (ok) {
+                      await api.del(`/api/embeds/${embed.id}/team/${m.id}`);
+                      onLeft();
+                    }
+                  }}
+                >
+                  Leave
+                </button>
+              </span>
+            ) : (
+              <span className="pill">{m.role === "editor" ? "Editor" : "Viewer"}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {isOwner && (
+        <form
+          className="inline-form team-invite"
+          onSubmit={(e) => {
+            e.preventDefault();
+            act(async () => {
+              await api.post(`/api/embeds/${embed.id}/team`, { email, role });
+              setEmail("");
+            });
+          }}
+        >
+          <input type="email" required placeholder="colleague@company.com" aria-label="Teammate's email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <select aria-label="Role" value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="viewer">Viewer</option>
+            <option value="editor">Editor</option>
+          </select>
+          <button className="btn small">Invite</button>
+        </form>
+      )}
+      {isOwner && <p className="muted small">They get an email (when email is set up) and see it once they sign in with that address. If sign-ups need approval, approve their email in Admin console &gt; Access too.</p>}
+      {error && <p className="error">{error}</p>}
+      {confirmDialog}
+    </section>
+  );
+}
+
 function UsageTab({ embed, me, onChanged, onRemoved, onInstall, onTeach }) {
   const [confirmAsk, confirmDialog] = useConfirm();
   const [cap, setCap] = useState(String(embed.daily_cap_usd));
@@ -800,6 +980,10 @@ function UsageTab({ embed, me, onChanged, onRemoved, onInstall, onTeach }) {
         )}
       </section>
 
+      <UpdatesAndReports embed={embed} onChanged={onChanged} />
+      <Team embed={embed} me={me} onLeft={() => onRemoved(embed.id)} />
+
+      {embed.my_role === "owner" && (
       <section className="way">
         <strong>Keys</strong>
         <div className="key-row">
@@ -838,9 +1022,11 @@ function UsageTab({ embed, me, onChanged, onRemoved, onInstall, onTeach }) {
           </button>
         </div>
       </section>
+      )}
 
       <Insights embed={embed} onTeach={onTeach} />
 
+      {embed.my_role === "owner" && (
       <section className="way danger-zone">
         <strong>Danger zone</strong>
         <div className="key-row">
@@ -867,6 +1053,7 @@ function UsageTab({ embed, me, onChanged, onRemoved, onInstall, onTeach }) {
           </button>
         </div>
       </section>
+      )}
       {confirmDialog}
     </div>
   );
@@ -935,6 +1122,7 @@ function AnswerForm({ siteId, initial, onSaved, onCancel }) {
 }
 
 function KnowledgeTab({ embed, prefill, onPrefillUsed }) {
+  const readOnly = embed.my_role === "viewer";
   const siteId = embed.site_id;
   const [items, setItems] = useState(null);
   const [adding, setAdding] = useState(prefill ? { question: prefill } : null);
@@ -992,7 +1180,7 @@ function KnowledgeTab({ embed, prefill, onPrefillUsed }) {
       <section className="way">
         <div className="section-row">
           <strong>Your answers</strong>
-          {!adding && (
+          {!adding && !readOnly && (
             <button className="btn small" onClick={() => setAdding({})}>
               <PlusIcon size={14} /> Add an answer
             </button>
@@ -1022,14 +1210,14 @@ function KnowledgeTab({ embed, prefill, onPrefillUsed }) {
                   <div className="strong">{k.title}</div>
                   <div className="muted small knowledge-answer">{k.content}</div>
                 </div>
-                <div className="row-actions">
+                {!readOnly && <div className="row-actions">
                   <button className="link-btn small" onClick={() => setEditing(k.id)}>
                     Edit
                   </button>
                   <button className="link-btn small danger-link" onClick={() => remove(k)}>
                     Remove
                   </button>
-                </div>
+                </div>}
               </li>
             )
           )}
@@ -1038,7 +1226,7 @@ function KnowledgeTab({ embed, prefill, onPrefillUsed }) {
       <section className="way">
         <strong>Documents</strong>
         <p className="muted small">PDF, Word (.docx), text or Markdown, up to 10 MB each (50 per bot). Scanned PDFs without a text layer can't be read.</p>
-        <label className="btn small upload-btn">
+        {!readOnly && <label className="btn small upload-btn">
           {uploading ? `Uploading ${uploading}…` : "Upload documents"}
           <input
             type="file"
@@ -1050,7 +1238,7 @@ function KnowledgeTab({ embed, prefill, onPrefillUsed }) {
               e.target.value = "";
             }}
           />
-        </label>
+        </label>}
         <ul className="knowledge-list">
           {docs.map((k) => (
             <li key={k.id}>
@@ -1060,11 +1248,11 @@ function KnowledgeTab({ embed, prefill, onPrefillUsed }) {
                   {(k.size / 1024).toFixed(0)} KB · {plural(k.chunks, "passage")} · added {timeAgo(k.created_at)}
                 </div>
               </div>
-              <div className="row-actions">
+              {!readOnly && <div className="row-actions">
                 <button className="link-btn small danger-link" onClick={() => remove(k)}>
                   Remove
                 </button>
-              </div>
+              </div>}
             </li>
           ))}
         </ul>
@@ -1110,9 +1298,9 @@ function LeadsTab({ embed, onChanged }) {
                   {timeAgo(l.created_at)}
                   {l.origin ? ` · ${l.origin.replace(/^https?:\/\//, "")}` : ""}
                 </span>
-                <button className="btn small" onClick={() => toggle(l)}>
+                {embed.my_role !== "viewer" && <button className="btn small" onClick={() => toggle(l)}>
                   {l.status === "open" ? "Mark handled" : "Reopen"}
-                </button>
+                </button>}
               </div>
               {l.question && (
                 <p className="small">
@@ -1211,6 +1399,7 @@ function EmbedBot({ embed, me, tab, sub, onRoute, onChanged, onRemoved }) {
                 role="switch"
                 aria-checked={embed.enabled}
                 aria-label="Show this chatbot on the website"
+                disabled={embed.my_role === "viewer"}
                 className={`switch ${embed.enabled ? "on" : ""}`}
                 onClick={() => act(() => api.patch(`/api/embeds/${embed.id}`, { enabled: !embed.enabled }))}
               >
@@ -1423,6 +1612,7 @@ function EmbedList({ me, embeds, choices, onOpen, onCreated }) {
                     <BotIcon site={e.site} size={32} />
                     <div className="bot-name">
                       {e.site.name} Chatbot
+                      {e.my_role && e.my_role !== "owner" && <span className="pill shared-pill">Shared · {e.my_role}</span>}
                       <div className="muted small tile-meta">
                         {e.site.domain}
                         {!e.restrict_to_domain && <span className="pill warn-pill">any website</span>}
@@ -1461,7 +1651,8 @@ export default function EmbedPage({ me, sites, route, onRoute }) {
     .filter((s) => s.ready && !taken.has(s.id) && (s.created_by === me.id || me.role === "admin"))
     .sort((a, b) => a.name.localeCompare(b.name));
   const embed = route.embedId && embeds.find((e) => e.id === route.embedId);
-  const replace = (updated) => setEmbeds((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+  // Some updates come from admin endpoints, which don't say what this user's role is; keep the one we know.
+  const replace = (updated) => setEmbeds((list) => list.map((x) => (x.id === updated.id ? { ...updated, my_role: updated.my_role ?? x.my_role } : x)));
 
   if (embed) {
     return (

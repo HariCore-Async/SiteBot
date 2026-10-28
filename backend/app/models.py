@@ -109,6 +109,8 @@ class Site(Base):
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Suggested starter questions, generated from the indexed pages on first request. None = not generated yet.
     suggestions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Re-read the website automatically: off | daily | weekly (only changed content is re-embedded).
+    reindex_schedule: Mapped[str] = mapped_column(String(10), default="off")
     # Admin's per-bot model choice (a providers "ref" such as "m:3"); None uses the default.
     answer_model: Mapped[str | None] = mapped_column(String(40), nullable=True)
     fast_model: Mapped[str | None] = mapped_column(String(40), nullable=True)
@@ -209,6 +211,9 @@ class Embed(Base):
     secret_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     secret_last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reviewed_by: Mapped[str] = mapped_column(String(320), default="")
+    # A weekly summary email to the owner (chats, top and unanswered questions, leads, spend).
+    weekly_report: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_report_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Shown to the owner when an admin rejects the request.
     review_note: Mapped[str] = mapped_column(Text, default="")
     # The last page load seen from a website (widget or sitebot-client.js), for "Check installation".
@@ -245,6 +250,20 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text)
     sources: Mapped[list] = mapped_column(JSON, default=list)
     grounded: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EmbedMember(Base):
+    """A teammate on a website chatbot, by email (they get access once they sign in with it)."""
+
+    __tablename__ = "embed_members"
+    __table_args__ = (UniqueConstraint("embed_id", "email"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    embed_id: Mapped[int] = mapped_column(ForeignKey("embeds.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)  # lower-case
+    role: Mapped[str] = mapped_column(String(20), default="viewer")  # viewer | editor
+    invited_by: Mapped[str] = mapped_column(String(320), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
