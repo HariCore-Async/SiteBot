@@ -23,6 +23,7 @@ SERVER_VISITOR_RE = re.compile(r"^[A-Za-z0-9_.:@-]{1,64}$")
 
 STYLE_DEFAULTS = {
     "launcher_icon": "chat", "launcher_label": "", "title": "", "font": "system", "radius": 16, "theme": "light", "custom_css": "",
+    "proactive_seconds": 0, "proactive_text": "",
 }
 
 
@@ -186,11 +187,13 @@ def embed_out(db: Session, e: Embed, site: Site) -> dict:
             select(func.count(Chat.id)).where(Chat.embed_id == e.id, Chat.is_test.is_(False), Chat.updated_at >= start_of_today())
         ),
         "last_seen": {"origin": e.last_seen_origin, "at": e.last_seen_at.isoformat()} if e.last_seen_at else None,
+        "weekly_report": e.weekly_report,
         "leads_open": db.scalar(select(func.count(Lead.id)).where(Lead.embed_id == e.id, Lead.status == "open")),
         "reviewed_by": e.reviewed_by, "reviewed_at": e.reviewed_at.isoformat() if e.reviewed_at else None,
         "review_note": e.review_note,
         "created_at": e.created_at.isoformat(),
-        "site": {"id": site.id, "name": site.name, "domain": site.domain, "favicon": site.favicon, "ready": site.generation > 0},
+        "site": {"id": site.id, "name": site.name, "domain": site.domain, "favicon": site.favicon, "ready": site.generation > 0,
+                 "reindex_schedule": site.reindex_schedule, "indexed_at": site.indexed_at.isoformat() if site.indexed_at else None},
     }
 
 

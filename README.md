@@ -49,6 +49,14 @@ Home → **Add a chatbot to your website** (or the sidebar's **Add to your websi
   sees it under **Leads**. `sitebot-client.js` has `bot.contact({ email, name, message })`.
 - **Languages:** the bot replies in the visitor's language (searching the website in English behind the scenes), with
   citations as usual. Fixed texts (greeting, "I don't know") are still in English.
+- **Keeping up to date:** each bot can re-read its website every day or week (Usage & settings); only content that
+  changed is learned again. A weekly report email (chats, most asked and unanswered questions, leads, spend) goes to the
+  owner of each live website chatbot in weeks with chats; owners can switch it off. Both run in the app's background
+  scheduler (`SCHEDULER_ENABLED`, `SCHEDULER_INTERVAL_SECONDS`), which, like indexing, expects a single replica.
+- **Team:** the owner of a website chatbot can invite colleagues by email as **viewers** (conversations, leads,
+  insights) or **editors** (also design, knowledge, leads, schedule). Keys, the team and removal stay with the owner.
+- **Widget extras:** an optional pop-up greeting after a few seconds (once per visit), and suggested questions ordered by
+  the page the visitor is on (embed.js sends the page address without its query string).
 - **Emails:** admins get an email for each new request, and owners when theirs is approved or not (with the admin's reason). Uses the same email settings as sign-up codes; without them, nothing is sent and it's only logged. Set `APP_URL` for links in these emails.
 - **Your own UI:** instead of the widget, use `sitebot-client.js` in the browser (public key, same domain lock) or the server API at `/api/v1` with a secret `sk_` key from the Embed page. See [docs/API.md](docs/API.md).
 - **Styling:** theme (light, dark or auto), font, corner rounding, header title, launcher icon and label, and custom CSS, which applies only inside the widget and has imports and `url()` removed.
@@ -131,6 +139,7 @@ Keep one replica: indexing jobs run inside the web process.
 | `EMBED_DAILY_CAP_USD` | `0.5` | default daily spend limit for each website embed |
 | `EMBED_DEV_ORIGINS` | *(empty)* | local testing only: extra origins every embed may run on, comma-separated |
 | `APP_URL` | *(empty)* | public address, for links in notification emails |
+| `SCHEDULER_ENABLED` / `SCHEDULER_INTERVAL_SECONDS` | `true` / `600` | background jobs: scheduled re-index, weekly reports |
 | `SENTRY_DSN` / `SENTRY_BROWSER_DSN` | *(empty)* | error monitoring for the server / browsers; off when empty |
 
 ## Limits

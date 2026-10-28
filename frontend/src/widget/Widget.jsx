@@ -14,6 +14,7 @@ const PREVIEW = params.get("preview") === "1";
 // owner, so it works before approval and on SiteBot's own sample page.
 const TEST = params.get("test") === "1";
 const AS_PREVIEW = PREVIEW || TEST;
+const PAGE = params.get("page") || "";
 const query = `origin=${encodeURIComponent(ORIGIN)}${AS_PREVIEW ? "&preview=true" : ""}`;
 
 // Visitors are anonymous: a random id in this browser keeps their conversation across page loads.
@@ -180,6 +181,7 @@ export default function Widget() {
   const launcherRef = useRef(null);
   const [dark, setDark] = useState(false);
   const [full, setFull] = useState(false);
+  const [teaser, setTeaser] = useState(false);
   // Live preview: the Design tab sends its unsaved changes here as you edit (preview only, same origin only).
   const draftRef = useRef(null);
 
@@ -206,7 +208,7 @@ export default function Widget() {
 
   useEffect(() => {
     api
-      .get(`/api/public/${encodeURIComponent(KEY)}/config?${query}`)
+      .get(`/api/public/${encodeURIComponent(KEY)}/config?${query}${PAGE ? `&page=${encodeURIComponent(PAGE)}` : ""}`)
       .then((c) => setCfg(draftRef.current ? withDraft(c, draftRef.current) : c))
       .catch((e) => {
         setUnavailable(e.message);
@@ -243,7 +245,30 @@ export default function Widget() {
     const el = launcherRef.current;
     const size = !open && el ? { width: Math.ceil(el.offsetWidth) + 24, height: Math.ceil(el.offsetHeight) + 24 } : null;
     tellParent({ open, position: cfg.position, size });
+  }, [cfg, open, teaser]);
+
+  // Proactive greeting: after N seconds on the page, show the greeting next to the bubble (once per visit).
+  useEffect(() => {
+    const secs = cfg?.style?.proactive_seconds || 0;
+    if (!cfg || open || !secs || AS_PREVIEW) return;
+    let seen = false;
+    try {
+      seen = sessionStorage.getItem(`sitebot_teaser_${KEY}`) === "1";
+    } catch {
+      /* storage blocked: show it */
+    }
+    if (seen) return;
+    const t = setTimeout(() => setTeaser(true), secs * 1000);
+    return () => clearTimeout(t);
   }, [cfg, open]);
+  const dismissTeaser = () => {
+    setTeaser(false);
+    try {
+      sessionStorage.setItem(`sitebot_teaser_${KEY}`, "1");
+    } catch {
+      /* fine */
+    }
+  };
 
   useEffect(() => {
     if (!cfg || !open || loaded) return;
@@ -328,9 +353,28 @@ export default function Widget() {
   if (!open) {
     return (
       <div className={`w-launcher ${cfg.position}`} style={style} ref={launcherRef}>
+        {teaser && (
+          <div className="w-teaser" role="status">
+            <button
+              className="w-teaser-text"
+              onClick={() => {
+                dismissTeaser();
+                setOpen(true);
+              }}
+            >
+              {look.proactive_text || cfg.greeting}
+            </button>
+            <button className="w-teaser-close" aria-label="Dismiss" onClick={dismissTeaser}>
+              ×
+            </button>
+          </div>
+        )}
         <button
           className={`w-bubble ${look.launcher_label ? "labelled" : ""}`}
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            dismissTeaser();
+            setOpen(true);
+          }}
           aria-label={look.launcher_label || `Chat with ${title}`}
           title={`Chat with ${title}`}
         >
