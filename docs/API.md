@@ -39,6 +39,9 @@ The Embed page sets the colour, position, theme (light, dark or auto), font, cor
   // reply = { answer, sources: [{ n, title, url }], grounded, messageId }
 
   await bot.feedback(reply.messageId, "up");   // or "down", with an optional comment
+  if (!reply.grounded) {                        // it couldn't answer from the website: offer a human
+    await bot.contact({ email: "jo@example.com", name: "Jo", message: "Please call me" });
+  }
   bot.newConversation();                       // start fresh for this visitor
 </script>
 ```

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .embeddings import embed_query
-from .models import Chunk
+from .models import KNOWLEDGE_GENERATION, Chunk
 
 CANDIDATES = 20
 RRF_K = 60
@@ -29,7 +29,8 @@ def retrieve(db: Session, site_id: int, generation: int, query: str) -> tuple[li
     distance = Chunk.embedding.cosine_distance(qvec)
     vec_rows = db.execute(
         select(Chunk.id, Chunk.url, Chunk.title, Chunk.content, (1 - distance).label("sim"))
-        .where(Chunk.site_id == site_id, Chunk.generation == generation)
+        # The live index, plus what the owner added by hand (answers and documents), which survives re-indexing.
+        .where(Chunk.site_id == site_id, Chunk.generation.in_((generation, KNOWLEDGE_GENERATION)))
         .order_by(distance)
         .limit(CANDIDATES)
     ).all()
@@ -43,12 +44,12 @@ def retrieve(db: Session, site_id: int, generation: int, query: str) -> tuple[li
             )
             SELECT c.id, c.url, c.title, c.content, ts_rank_cd(c.tsv, q.query) AS rank
             FROM chunks c, q
-            WHERE c.site_id = :s AND c.generation = :g AND q.query::text <> '' AND c.tsv @@ q.query
+            WHERE c.site_id = :s AND c.generation IN (:g, :k) AND q.query::text <> '' AND c.tsv @@ q.query
             ORDER BY rank DESC
             LIMIT :n
             """
         ),
-        {"t": query, "s": site_id, "g": generation, "n": CANDIDATES},
+        {"t": query, "s": site_id, "g": generation, "k": KNOWLEDGE_GENERATION, "n": CANDIDATES},
     ).all()
 
     hits: dict[int, Hit] = {}

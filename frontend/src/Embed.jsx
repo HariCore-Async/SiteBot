@@ -538,7 +538,7 @@ function InstallTab({ embed, sub, onSub, onChanged }) {
 
 // ---------- Conversations ----------
 
-function ConversationsTab({ embed }) {
+function ConversationsTab({ embed, onTeach }) {
   const [chats, setChats] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -632,11 +632,16 @@ function ConversationsTab({ embed }) {
         <div className="convo-view">
           {!openId && <p className="muted small">Pick a conversation to read it.</p>}
           {openId &&
-            messages.map((m) => (
+            messages.map((m, i) => (
               <div key={m.id} className={`convo-msg ${m.role} ${m.role === "assistant" && !m.grounded ? "missed" : ""}`}>
                 <span className="convo-role">
                   {m.role === "user" ? "Visitor" : "Bot"}
                   {m.role === "assistant" && !m.grounded && <span className="pill warn-pill">Couldn't answer from the website</span>}
+                  {m.role === "assistant" && !m.grounded && messages[i - 1]?.role === "user" && onTeach && (
+                    <button className="link-btn small teach-btn" onClick={() => onTeach(messages[i - 1].content)}>
+                      Teach the bot
+                    </button>
+                  )}
                 </span>
                 {m.role === "assistant" ? (
                   <div>
@@ -686,7 +691,7 @@ function DayChart({ days }) {
   );
 }
 
-function Insights({ embed }) {
+function Insights({ embed, onTeach }) {
   const [data, setData] = useState(null);
   useEffect(() => {
     api.get(`/api/embeds/${embed.id}/insights`).then(setData).catch(() => setData({ days: [], top_questions: [], unanswered: [] }));
@@ -716,7 +721,7 @@ function Insights({ embed }) {
       </section>
       <section className="way">
         <strong>Couldn't answer</strong>
-        <p className="muted small">Questions your website doesn't cover yet. Adding that information to your website helps the bot answer them.</p>
+        <p className="muted small">Questions your website doesn't cover yet. Teach the bot the answer, or add the information to your website.</p>
         {data.unanswered.length ? (
           <ol className="q-list">
             {data.unanswered.map((q) => (
@@ -724,7 +729,12 @@ function Insights({ embed }) {
                 <span>{q.question}</span>
                 <span className="muted small">
                   {q.count}× · {timeAgo(q.last_at)}
-                </span>
+                </span>{" "}
+                {onTeach && (
+                  <button className="link-btn small" onClick={() => onTeach(q.question)}>
+                    Teach the bot
+                  </button>
+                )}
               </li>
             ))}
           </ol>
@@ -738,7 +748,7 @@ function Insights({ embed }) {
 
 // ---------- Usage & settings ----------
 
-function UsageTab({ embed, me, onChanged, onRemoved, onInstall }) {
+function UsageTab({ embed, me, onChanged, onRemoved, onInstall, onTeach }) {
   const [confirmAsk, confirmDialog] = useConfirm();
   const [cap, setCap] = useState(String(embed.daily_cap_usd));
   const [error, setError] = useState("");
@@ -829,7 +839,7 @@ function UsageTab({ embed, me, onChanged, onRemoved, onInstall }) {
         </div>
       </section>
 
-      <Insights embed={embed} />
+      <Insights embed={embed} onTeach={onTeach} />
 
       <section className="way danger-zone">
         <strong>Danger zone</strong>
@@ -864,10 +874,272 @@ function UsageTab({ embed, me, onChanged, onRemoved, onInstall }) {
 
 // ---------- One chatbot's page ----------
 
+// ---------- Knowledge: teach the bot ----------
+
+const MAX_UPLOAD = 10 * 1024 * 1024;
+
+function readAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = () => reject(new Error("Couldn't read that file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function AnswerForm({ siteId, initial, onSaved, onCancel }) {
+  const [question, setQuestion] = useState(initial?.title || initial?.question || "");
+  const [answer, setAnswer] = useState(initial?.content || "");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="answer-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError("");
+        setBusy(true);
+        try {
+          const saved = initial?.id
+            ? await api.patch(`/api/sites/${siteId}/knowledge/${initial.id}`, { question, answer })
+            : await api.post(`/api/sites/${siteId}/knowledge/answers`, { question, answer });
+          onSaved(saved);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label className="field">
+        <span>Question</span>
+        <input required maxLength={500} placeholder="Do you ship to Canada?" value={question} onChange={(e) => setQuestion(e.target.value)} />
+      </label>
+      <label className="field">
+        <span>Answer</span>
+        <textarea required rows={4} maxLength={5000} placeholder="Yes, we ship to Canada in 5–7 working days." value={answer} onChange={(e) => setAnswer(e.target.value)} />
+      </label>
+      {error && <p className="error">{error}</p>}
+      <div className="embed-actions">
+        <button className="btn primary small" disabled={busy}>
+          {busy ? "Saving…" : initial?.id ? "Save answer" : "Teach the bot"}
+        </button>
+        {onCancel && (
+          <button type="button" className="btn ghost small" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+function KnowledgeTab({ embed, prefill, onPrefillUsed }) {
+  const siteId = embed.site_id;
+  const [items, setItems] = useState(null);
+  const [adding, setAdding] = useState(prefill ? { question: prefill } : null);
+  const [editing, setEditing] = useState(null);
+  const [uploading, setUploading] = useState("");
+  const [error, setError] = useState("");
+  const [confirmAsk, confirmDialog] = useConfirm();
+  const load = useCallback(() => api.get(`/api/sites/${siteId}/knowledge`).then(setItems).catch((e) => setError(e.message)), [siteId]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  useEffect(() => {
+    if (prefill) onPrefillUsed?.();
+  }, [prefill, onPrefillUsed]);
+
+  const upload = async (files) => {
+    setError("");
+    for (const file of files) {
+      if (file.size > MAX_UPLOAD) {
+        setError(`${file.name} is over 10 MB.`);
+        continue;
+      }
+      setUploading(file.name);
+      try {
+        await api.post(`/api/sites/${siteId}/knowledge/documents`, { filename: file.name, data_b64: await readAsBase64(file) });
+      } catch (e) {
+        setError(`${file.name}: ${e.message}`);
+      }
+    }
+    setUploading("");
+    load();
+  };
+
+  const remove = async (k) => {
+    const ok = await confirmAsk({
+      title: `Remove ${k.kind === "answer" ? "this answer" : k.filename}?`,
+      message: "The bot stops using it straight away.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
+    await api.del(`/api/sites/${siteId}/knowledge/${k.id}`);
+    load();
+  };
+
+  const answers = (items || []).filter((k) => k.kind === "answer");
+  const docs = (items || []).filter((k) => k.kind === "document");
+  return (
+    <div className="knowledge-tab">
+      <p className="muted">
+        Teach {embed.site.name} Chatbot things that aren't on the website. It uses your answers and documents alongside the website's pages, and cites
+        them like any other source. Updating the website from its pages keeps them.
+      </p>
+      {error && <p className="error">{error}</p>}
+      <section className="way">
+        <div className="section-row">
+          <strong>Your answers</strong>
+          {!adding && (
+            <button className="btn small" onClick={() => setAdding({})}>
+              <PlusIcon size={14} /> Add an answer
+            </button>
+          )}
+        </div>
+        {adding && (
+          <AnswerForm
+            siteId={siteId}
+            initial={adding}
+            onCancel={() => setAdding(null)}
+            onSaved={() => {
+              setAdding(null);
+              load();
+            }}
+          />
+        )}
+        {items && !answers.length && !adding && <p className="muted small">No answers yet. Tip: the Usage tab lists questions it couldn't answer, each with "Teach the bot".</p>}
+        <ul className="knowledge-list">
+          {answers.map((k) =>
+            editing === k.id ? (
+              <li key={k.id}>
+                <AnswerForm siteId={siteId} initial={k} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+              </li>
+            ) : (
+              <li key={k.id}>
+                <div>
+                  <div className="strong">{k.title}</div>
+                  <div className="muted small knowledge-answer">{k.content}</div>
+                </div>
+                <div className="row-actions">
+                  <button className="link-btn small" onClick={() => setEditing(k.id)}>
+                    Edit
+                  </button>
+                  <button className="link-btn small danger-link" onClick={() => remove(k)}>
+                    Remove
+                  </button>
+                </div>
+              </li>
+            )
+          )}
+        </ul>
+      </section>
+      <section className="way">
+        <strong>Documents</strong>
+        <p className="muted small">PDF, Word (.docx), text or Markdown, up to 10 MB each (50 per bot). Scanned PDFs without a text layer can't be read.</p>
+        <label className="btn small upload-btn">
+          {uploading ? `Uploading ${uploading}…` : "Upload documents"}
+          <input
+            type="file"
+            multiple
+            accept=".pdf,.docx,.txt,.md,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            disabled={!!uploading}
+            onChange={(e) => {
+              upload([...e.target.files]);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        <ul className="knowledge-list">
+          {docs.map((k) => (
+            <li key={k.id}>
+              <div>
+                <div className="strong">{k.filename}</div>
+                <div className="muted small">
+                  {(k.size / 1024).toFixed(0)} KB · {plural(k.chunks, "passage")} · added {timeAgo(k.created_at)}
+                </div>
+              </div>
+              <div className="row-actions">
+                <button className="link-btn small danger-link" onClick={() => remove(k)}>
+                  Remove
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+      {confirmDialog}
+    </div>
+  );
+}
+
+// ---------- Leads: visitors who want to hear back ----------
+
+function LeadsTab({ embed, onChanged }) {
+  const [leads, setLeads] = useState(null);
+  const [showDone, setShowDone] = useState(false);
+  useEffect(() => {
+    api.get(`/api/embeds/${embed.id}/leads`).then(setLeads).catch(() => setLeads([]));
+  }, [embed.id]);
+  if (!leads) return <p className="muted small">Loading…</p>;
+  const shown = leads.filter((l) => showDone || l.status === "open");
+  const toggle = async (l) => {
+    const updated = await api.patch(`/api/embeds/${embed.id}/leads/${l.id}`, { status: l.status === "open" ? "done" : "open" });
+    setLeads((list) => list.map((x) => (x.id === l.id ? updated : x)));
+    api.get("/api/embeds").then((all) => onChanged(all.find((x) => x.id === embed.id) || embed)).catch(() => {});
+  };
+  return (
+    <div className="leads-tab">
+      <p className="muted">
+        When the bot can't answer, visitors can leave their email so someone can get back to them. You also get an email for each one (when email is set up).
+      </p>
+      <label className="check">
+        <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> Show handled
+      </label>
+      {!shown.length ? (
+        <p className="muted small">{leads.length ? "Nothing open. Nice." : "No one has left their details yet."}</p>
+      ) : (
+        <ul className="lead-list">
+          {shown.map((l) => (
+            <li key={l.id} className={`way ${l.status === "done" ? "done" : ""}`}>
+              <div className="lead-head">
+                <strong>{l.name || l.email}</strong>
+                <a href={`mailto:${l.email}`}>{l.email}</a>
+                <span className="muted small">
+                  {timeAgo(l.created_at)}
+                  {l.origin ? ` · ${l.origin.replace(/^https?:\/\//, "")}` : ""}
+                </span>
+                <button className="btn small" onClick={() => toggle(l)}>
+                  {l.status === "open" ? "Mark handled" : "Reopen"}
+                </button>
+              </div>
+              {l.question && (
+                <p className="small">
+                  <span className="muted">Asked: </span>
+                  {l.question}
+                </p>
+              )}
+              {l.message && (
+                <p className="small">
+                  <span className="muted">Message: </span>
+                  {l.message}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 const BOT_TABS = [
   ["design", "Design"],
   ["install", "Install"],
+  ["knowledge", "Knowledge"],
   ["conversations", "Conversations"],
+  ["leads", "Leads"],
   ["usage", "Usage & settings"],
 ];
 
@@ -901,6 +1173,13 @@ function EmbedBot({ embed, me, tab, sub, onRoute, onChanged, onRemoved }) {
     }
     onRoute(route);
   };
+  // "Teach the bot" from an unanswered question: open Knowledge with the question filled in.
+  const [teach, setTeach] = useState("");
+  const onTeach = (question) => {
+    setTeach(question);
+    go({ embedId: embed.id, tab: "knowledge" });
+  };
+  const clearTeach = useCallback(() => setTeach(""), []);
   const act = async (fn) => {
     setError("");
     try {
@@ -985,12 +1264,14 @@ function EmbedBot({ embed, me, tab, sub, onRoute, onChanged, onRemoved }) {
       {me.role !== "admin" && <p className="muted small lock-note">Only an admin can change which websites may use this chatbot.</p>}
       {error && <p className="error">{error}</p>}
 
-      <Tabs tabs={BOT_TABS} value={current} onChange={(t) => t !== current && go({ embedId: embed.id, tab: t })} className="bot-tabs" label="Chatbot settings" />
+      <Tabs tabs={BOT_TABS.map(([id, label]) => (id === "leads" && embed.leads_open ? [id, label, String(embed.leads_open)] : [id, label]))} value={current} onChange={(t) => t !== current && go({ embedId: embed.id, tab: t })} className="bot-tabs" label="Chatbot settings" />
       {current === "design" && <DesignTab embed={embed} onChanged={onChanged} onDirty={setDirty} />}
       {current === "install" && (
         <InstallTab embed={embed} sub={sub} onSub={(s) => onRoute({ embedId: embed.id, tab: "install", sub: s })} onChanged={onChanged} />
       )}
-      {current === "conversations" && <ConversationsTab embed={embed} />}
+      {current === "knowledge" && <KnowledgeTab embed={embed} prefill={teach} onPrefillUsed={clearTeach} />}
+      {current === "conversations" && <ConversationsTab embed={embed} onTeach={onTeach} />}
+      {current === "leads" && <LeadsTab embed={embed} onChanged={onChanged} />}
       {current === "usage" && (
         <UsageTab
           key={embed.daily_cap_usd}
@@ -999,6 +1280,7 @@ function EmbedBot({ embed, me, tab, sub, onRoute, onChanged, onRemoved }) {
           onChanged={onChanged}
           onRemoved={onRemoved}
           onInstall={() => onRoute({ embedId: embed.id, tab: "install", sub: "server" })}
+          onTeach={onTeach}
         />
       )}
       {confirmDialog}

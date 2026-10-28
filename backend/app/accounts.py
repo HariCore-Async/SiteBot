@@ -152,6 +152,7 @@ def deliver_code(email: str, code: str) -> None:
 def notify(recipients: list[str], subject: str, body: str) -> None:
     """Best-effort notification emails, sent in the background. Without a provider they're only logged."""
     recipients = sorted({r.strip().lower() for r in recipients if r and "@" in r})
+    subject = " ".join(subject.split())  # no line breaks in an email header
     if not recipients:
         return
     if not email_enabled():

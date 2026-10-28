@@ -10,7 +10,7 @@ from .config import settings
 from .crawler import Crawler, CrawlError, PageResult, extract_site_identity
 from .db import SessionLocal
 from .embeddings import embed_passages
-from .models import Chunk, Page, Site, utcnow
+from .models import KNOWLEDGE_GENERATION, Chunk, Page, Site, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -230,7 +230,8 @@ def run_ingestion(site_id: int) -> None:
             parts.append("more pages not yet read")
         site.message = " · ".join(parts)
         db.commit()
-        db.execute(delete(Chunk).where(Chunk.site_id == site_id, Chunk.generation != gen))
+        # Keep the owner's own answers and documents (generation 0); they aren't part of any crawl.
+        db.execute(delete(Chunk).where(Chunk.site_id == site_id, Chunk.generation != gen, Chunk.generation != KNOWLEDGE_GENERATION))
         db.execute(delete(Page).where(Page.site_id == site_id, Page.generation != gen))
         db.commit()
     except Stopped:

@@ -151,6 +151,29 @@ class ServerFeedback(BaseModel):
     comment: str = Field(default="", max_length=1000)
 
 
+class AnswerIn(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    answer: str = Field(min_length=1, max_length=5000)
+
+
+class DocumentIn(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    # The file's bytes, base64-encoded (10 MB at most once decoded).
+    data_b64: str = Field(min_length=1, max_length=14_500_000)
+
+
+class LeadIn(BaseModel):
+    visitor_id: str = Field(min_length=16, max_length=64)
+    email: str = Field(min_length=3, max_length=320)
+    name: str = Field(default="", max_length=200)
+    message: str = Field(default="", max_length=2000)
+    origin: str = Field(default="", max_length=300)
+
+
+class LeadUpdate(BaseModel):
+    status: str = Field(pattern="^(open|done)$")
+
+
 MODEL_REF = r"^(env:answer|env:fast|m:\d+)$"
 
 

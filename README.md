@@ -41,6 +41,14 @@ Home → **Add a chatbot to your website** (or the sidebar's **Add to your websi
 - **Cost:** visitors' questions are charged to the owner's credits (their normal limit and the global budget still apply), plus a per-embed daily limit (`EMBED_DAILY_CAP_USD`, editable per embed in Admin). When a limit is reached, visitors see a polite "taking a short break" message. Each visitor is limited to 6 questions a minute (60 an hour), and each network address to 20 a minute (300 a day).
 - **Visitors** are anonymous: a random id in their browser keeps their conversation. Owners can read their visitors' conversations on the embed page.
 - **Managing them:** Home → *Add a chatbot to your website* lists your website chatbots; each has Design (live preview), Install (snippet with platform guides for WordPress, Shopify, Wix, Webflow, Squarespace and Google Tag Manager, a "Test it" page and an installation check, plus the browser and server APIs), Conversations (filters, "couldn't answer", Excel/CSV export) and Usage & settings (spend, chats per day, most-asked and unanswered questions, keys).
+- **Knowledge (teach the bot):** the bot's creator (or an admin) can add answers to questions, often straight from the
+  "Couldn't answer" list with **Teach the bot**, and upload documents (PDF, Word .docx, text, Markdown; 10 MB each, 50 per
+  bot). They're indexed next to the website's pages, cited as "Answer from the … team" or by file name, and kept when
+  the website is re-indexed.
+- **Human handoff (leads):** when the bot can't answer, the widget offers "Leave your email"; the owner is emailed and
+  sees it under **Leads**. `sitebot-client.js` has `bot.contact({ email, name, message })`.
+- **Languages:** the bot replies in the visitor's language (searching the website in English behind the scenes), with
+  citations as usual. Fixed texts (greeting, "I don't know") are still in English.
 - **Emails:** admins get an email for each new request, and owners when theirs is approved or not (with the admin's reason). Uses the same email settings as sign-up codes; without them, nothing is sent and it's only logged. Set `APP_URL` for links in these emails.
 - **Your own UI:** instead of the widget, use `sitebot-client.js` in the browser (public key, same domain lock) or the server API at `/api/v1` with a secret `sk_` key from the Embed page. See [docs/API.md](docs/API.md).
 - **Styling:** theme (light, dark or auto), font, corner rounding, header title, launcher icon and label, and custom CSS, which applies only inside the widget and has imports and `url()` removed.

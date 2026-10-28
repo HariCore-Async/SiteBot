@@ -97,6 +97,47 @@ const ThumbIcon = ({ down }) => (
 );
 
 /** Thumbs up/down under an answer. Owners see the ratings on their Embed page. */
+/** Human handoff: after an answer the bot couldn't give, the visitor can leave their email for the team. */
+function Handoff({ onSent }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ email: "", name: "", message: "" });
+  const [state, setState] = useState("");
+  const [error, setError] = useState("");
+  if (state === "sent") return <p className="w-handoff-done">Thanks! The team will get back to you at {form.email}.</p>;
+  if (!open)
+    return (
+      <button className="w-handoff-open" onClick={() => setOpen(true)}>
+        Want a person to get back to you? Leave your email
+      </button>
+    );
+  return (
+    <form
+      className="w-handoff"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError("");
+        setState("sending");
+        try {
+          await api.post(`/api/public/${encodeURIComponent(KEY)}/leads`, { visitor_id: visitorId(), origin: ORIGIN, ...form });
+          setState("sent");
+          onSent?.();
+        } catch (err) {
+          setError(err.message);
+          setState("");
+        }
+      }}
+    >
+      <input type="email" required placeholder="Your email" aria-label="Your email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+      <input placeholder="Your name (optional)" aria-label="Your name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+      <textarea rows={2} maxLength={2000} placeholder="Anything else? (optional)" aria-label="Message" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
+      {error && <p className="w-error">{error}</p>}
+      <button className="w-send-lead" disabled={state === "sending"}>
+        {state === "sending" ? "Sending…" : "Send"}
+      </button>
+    </form>
+  );
+}
+
 function Rate({ m, onRate }) {
   if (!m.id || m.pending) return null;
   const rating = m.feedback?.rating;
@@ -126,6 +167,8 @@ const SendIcon = () => (
 export default function Widget() {
   const [cfg, setCfg] = useState(null);
   const [unavailable, setUnavailable] = useState("");
+  // Offer the handoff once per conversation, under the latest answer the bot couldn't give.
+  const [contactedId, setContactedId] = useState(null);
   const [open, setOpen] = useState(PREVIEW);
   const [messages, setMessages] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -276,6 +319,7 @@ export default function Widget() {
 
   const startOver = () => {
     newVisitorId();
+    setContactedId(null);
     setMessages([]);
     setError("");
     inputRef.current?.focus();
@@ -298,6 +342,7 @@ export default function Widget() {
   }
 
   const asked = new Set(messages.filter((m) => m.role === "user").map((m) => m.content.trim().toLowerCase()));
+  const lastMissed = [...messages].reverse().find((m) => m.role === "assistant" && m.grounded === false);
   const suggestions = messages.length ? [] : (cfg.suggestions || []).filter((q) => !asked.has(q.toLowerCase()));
 
   return (
@@ -343,6 +388,9 @@ export default function Widget() {
                     </ReactMarkdown>
                     {!m.pending && <Sources sources={m.sources} />}
                     {!AS_PREVIEW && <Rate m={m} onRate={rate} />}
+                    {!AS_PREVIEW && !m.pending && m.grounded === false && (contactedId ? contactedId === m.id : m === lastMissed) && (
+                      <Handoff onSent={() => setContactedId(m.id)} />
+                    )}
                   </>
                 )
               ) : (
