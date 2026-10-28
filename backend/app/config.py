@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     # origins every embed may run on, for local testing only (e.g. http://localhost:5500).
     embed_daily_cap_usd: float = 0.5
     embed_dev_origins: str = ""
+    # Public address of this app (e.g. https://sitebot.example.com), used for links in notification emails.
+    app_url: str = ""
 
     # Whole sites are read; this is only a safety ceiling so a huge site can't run forever.
     max_pages: int = 5000

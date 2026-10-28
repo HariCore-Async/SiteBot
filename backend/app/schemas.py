@@ -115,6 +115,7 @@ class EmbedReview(BaseModel):
     status: str | None = Field(default=None, pattern="^(approved|rejected|pending)$")
     daily_cap_usd: float | None = Field(default=None, ge=0, le=1000)
     restrict_to_domain: bool | None = None
+    note: str | None = Field(default=None, max_length=500)  # rejection reason, shown to the owner
 
 
 class VisitorAsk(BaseModel):

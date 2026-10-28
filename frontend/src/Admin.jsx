@@ -335,6 +335,8 @@ const EMBED_STATUS = { pending: ["Waiting", "queued"], approved: ["Approved", "r
 function Embeds() {
   const [embeds, setEmbeds] = useState([]);
   const [caps, setCaps] = useState({});
+  // Rejection reasons being typed, per embed (undefined: not rejecting).
+  const [notes, setNotes] = useState({});
   const [confirmAsk, confirmDialog] = useConfirm();
   const [error, setError] = useState("");
   const load = useCallback(() => api.get("/api/admin/embeds").then(setEmbeds).catch((e) => setError(e.message)), []);
@@ -449,11 +451,35 @@ function Embeds() {
                           Approve
                         </button>
                       )}
-                      {e.status !== "rejected" && (
-                        <button className="btn ghost small danger" onClick={() => review(e, { status: "rejected" })}>
+                      {e.status !== "rejected" && notes[e.id] === undefined && (
+                        <button className="btn ghost small danger" onClick={() => setNotes((n) => ({ ...n, [e.id]: "" }))}>
                           {e.status === "approved" ? "Revoke" : "Reject"}
                         </button>
                       )}
+                      {notes[e.id] !== undefined && (
+                        <form
+                          className="reject-form"
+                          onSubmit={async (ev) => {
+                            ev.preventDefault();
+                            await review(e, { status: "rejected", note: notes[e.id] });
+                            setNotes((n) => ({ ...n, [e.id]: undefined }));
+                          }}
+                        >
+                          <input
+                            autoFocus
+                            maxLength={500}
+                            placeholder="Reason (optional, shown to the owner)"
+                            aria-label="Reason for not approving"
+                            value={notes[e.id]}
+                            onChange={(ev) => setNotes((n) => ({ ...n, [e.id]: ev.target.value }))}
+                          />
+                          <button className="btn small danger-solid">{e.status === "approved" ? "Revoke" : "Reject"}</button>
+                          <button type="button" className="btn ghost small" onClick={() => setNotes((n) => ({ ...n, [e.id]: undefined }))}>
+                            Cancel
+                          </button>
+                        </form>
+                      )}
+                      {e.status === "rejected" && e.review_note && <div className="muted small">Reason: {e.review_note}</div>}
                     </td>
                   </tr>
                 );

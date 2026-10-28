@@ -45,6 +45,17 @@ function tellParent(state) {
   window.parent.postMessage({ type: "sitebot:state", ...state }, ORIGIN || "*");
 }
 
+/** The saved config with the Design tab's unsaved changes on top (live preview). */
+function withDraft(cfg, d) {
+  return {
+    ...cfg,
+    color: d.color || cfg.color,
+    position: d.position || cfg.position,
+    greeting: d.greeting?.trim() || `Hi, welcome to ${cfg.name}! Ask me anything about ${cfg.name}.`,
+    style: { ...cfg.style, ...d.style },
+  };
+}
+
 // Text on the accent colour: dark on light accents, white on dark ones.
 function onAccent(hex) {
   const n = parseInt((hex || "#000000").slice(1), 16);
@@ -126,6 +137,21 @@ export default function Widget() {
   const launcherRef = useRef(null);
   const [dark, setDark] = useState(false);
   const [full, setFull] = useState(false);
+  // Live preview: the Design tab sends its unsaved changes here as you edit (preview only, same origin only).
+  const draftRef = useRef(null);
+
+  useEffect(() => {
+    if (!PREVIEW) return;
+    const onMessage = (e) => {
+      if (e.source !== window.parent || e.origin !== location.origin || e.data?.type !== "sitebot:preview-style") return;
+      draftRef.current = e.data.draft;
+      setCfg((c) => (c ? withDraft(c, e.data.draft) : c));
+    };
+    window.addEventListener("message", onMessage);
+    // Ask the Design tab for its current draft, in case it was sent before this page was listening.
+    if (window.parent !== window) window.parent.postMessage({ type: "sitebot:preview-ready" }, location.origin);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   useEffect(() => {
     const onMessage = (e) => {
@@ -138,7 +164,7 @@ export default function Widget() {
   useEffect(() => {
     api
       .get(`/api/public/${encodeURIComponent(KEY)}/config?${query}`)
-      .then(setCfg)
+      .then((c) => setCfg(draftRef.current ? withDraft(c, draftRef.current) : c))
       .catch((e) => {
         setUnavailable(e.message);
         // On the "Test it" page, say why instead of disappearing.

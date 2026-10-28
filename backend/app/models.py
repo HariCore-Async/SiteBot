@@ -182,6 +182,11 @@ class Embed(Base):
     secret_hint: Mapped[str] = mapped_column(String(12), default="")
     secret_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reviewed_by: Mapped[str] = mapped_column(String(320), default="")
+    # Shown to the owner when an admin rejects the request.
+    review_note: Mapped[str] = mapped_column(Text, default="")
+    # The last page load seen from a website (widget or sitebot-client.js), for "Check installation".
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_origin: Mapped[str] = mapped_column(String(300), default="")
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -197,6 +202,8 @@ class Chat(Base):
     visitor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # The website a visitor's chat happened on, so owners can see where their bot is used.
     origin: Mapped[str] = mapped_column(String(300), default="")
+    # Chats from the owner's own preview or "Test it" page: labelled, and left out of visitor counts.
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False)
     title: Mapped[str] = mapped_column(String(200), default="New chat")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

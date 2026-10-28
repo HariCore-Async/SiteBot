@@ -6,6 +6,7 @@ import logging
 import re
 import secrets
 import smtplib
+import threading
 from datetime import timedelta
 from email.message import EmailMessage
 
@@ -107,36 +108,61 @@ def require_email() -> None:
         raise HTTPException(503, "Email isn't set up yet, so this isn't available. Please continue with Google.")
 
 
+def send_email(to: str, subject: str, body: str) -> None:
+    """Sends one plain-text email with Resend or SMTP. Raises on delivery errors; does nothing without a provider."""
+    if settings.resend_api_key:
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+            json={"from": settings.mail_from, "to": [to], "subject": subject, "text": body},
+            timeout=20,
+        )
+        r.raise_for_status()
+    elif settings.smtp_host:
+        msg = EmailMessage()
+        msg["From"], msg["To"], msg["Subject"] = settings.mail_from, to, subject
+        msg.set_content(body)
+        if settings.smtp_port == 465:
+            server = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=20)
+        else:
+            server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20)
+            server.starttls()
+        with server:
+            if settings.smtp_user:
+                server.login(settings.smtp_user, settings.smtp_password)
+            server.send_message(msg)
+
+
 def deliver_code(email: str, code: str) -> None:
     subject = f"{code} is your SiteBot verification code"
     body = (
         f"Your SiteBot verification code is {code}.\n\n"
         f"It expires in {CODE_MINUTES} minutes. If you didn't ask for it, you can ignore this email."
     )
+    if not email_enabled():
+        log.warning("No email provider configured. Verification code for %s: %s", email, code)
+        return
     try:
-        if settings.resend_api_key:
-            r = httpx.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": f"Bearer {settings.resend_api_key}"},
-                json={"from": settings.mail_from, "to": [email], "subject": subject, "text": body},
-                timeout=20,
-            )
-            r.raise_for_status()
-        elif settings.smtp_host:
-            msg = EmailMessage()
-            msg["From"], msg["To"], msg["Subject"] = settings.mail_from, email, subject
-            msg.set_content(body)
-            if settings.smtp_port == 465:
-                server = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=20)
-            else:
-                server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20)
-                server.starttls()
-            with server:
-                if settings.smtp_user:
-                    server.login(settings.smtp_user, settings.smtp_password)
-                server.send_message(msg)
-        else:
-            log.warning("No email provider configured. Verification code for %s: %s", email, code)
+        send_email(email, subject, body)
     except (httpx.HTTPError, smtplib.SMTPException, OSError) as e:
         log.error("Could not send verification email to %s: %s", email, e)
         raise HTTPException(502, "We couldn't send the verification email. Please try again in a moment.")
+
+
+def notify(recipients: list[str], subject: str, body: str) -> None:
+    """Best-effort notification emails, sent in the background. Without a provider they're only logged."""
+    recipients = sorted({r.strip().lower() for r in recipients if r and "@" in r})
+    if not recipients:
+        return
+    if not email_enabled():
+        log.info("Email isn't configured; not sending %r to %s", subject, ", ".join(recipients))
+        return
+
+    def run():
+        for to in recipients:
+            try:
+                send_email(to, subject, body)
+            except (httpx.HTTPError, smtplib.SMTPException, OSError) as e:
+                log.error("Could not send %r to %s: %s", subject, to, e)
+
+    threading.Thread(target=run, daemon=True).start()

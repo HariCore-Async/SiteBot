@@ -1,9 +1,13 @@
+import csv
+import io
 import itertools
 import json
 import logging
+import re
 import threading
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -21,7 +25,7 @@ from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .embeds import (
     admin_embed_out, check_visitor, clean_origin, client_ip, effective_origin, embed_out, hash_secret, ip_limiter, is_cross_site,
-    new_key, new_secret, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
+    insights, new_key, new_secret, note_seen, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
 from .ingest import is_running, request_stop, start_ingestion
 from .models import AccessGrant, Chat, Embed, Feedback, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
@@ -30,6 +34,7 @@ from .schemas import (
     AddSite, AdminSettingsIn, Ask, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     ServerAsk, ServerFeedback, VerifyCode, VisitorAsk, VisitorFeedback, site_out, user_out,
 )
+from .xlsx import to_xlsx
 from .usage import global_budget, set_global_budget, usage_summary
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -481,11 +486,24 @@ def request_embed(body: EmbedIn, user: User = Depends(current_user), db: Session
         e = Embed(key=new_key(), site_id=site.id, owner_id=user.id, status="pending")
         db.add(e)
     elif e.status == "rejected":
-        e.status = "pending"
+        e.status, e.review_note = "pending", ""
     if user.role == "admin" and e.status == "pending":
         e.status, e.reviewed_by, e.reviewed_at = "approved", user.email, utcnow()
     db.commit()
+    if e.status == "pending":
+        admins = [*settings.admin_email_set, *db.scalars(select(User.email).where(User.role == "admin"))]
+        accounts.notify(
+            admins,
+            f"SiteBot: {user.name or user.email} wants to add {site.name} Chatbot to a website",
+            f"{user.name} ({user.email}) asked to put {site.name} Chatbot on {site.domain}.\n\n"
+            f"Approve or reject it in SiteBot: Admin console > Embeds.{app_link('#/website')}",
+        )
     return embed_out(db, e, site)
+
+
+def app_link(path: str = "") -> str:
+    """A link for notification emails, when APP_URL is set."""
+    return f"\n\n{settings.app_url.rstrip('/')}/{path}" if settings.app_url else ""
 
 
 @app.patch("/api/embeds/{embed_id}")
@@ -548,17 +566,83 @@ def delete_embed(embed_id: int, user: User = Depends(current_user), db: Session 
 @app.get("/api/embeds/{embed_id}/chats")
 def embed_chats(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     e = own_embed(db, embed_id, user)
-    counts = (
-        select(Message.chat_id, func.count(Message.id).label("n")).group_by(Message.chat_id).subquery()
-    )
-    rows = db.execute(
-        select(Chat, counts.c.n).join(counts, counts.c.chat_id == Chat.id)
-        .where(Chat.embed_id == e.id).order_by(Chat.updated_at.desc()).limit(200)
-    ).all()
     return [
-        {"id": c.id, "title": c.title, "visitor": (c.visitor_id or "")[:6], "origin": c.origin, "messages": n, "updated_at": c.updated_at.isoformat()}
-        for c, n in rows
+        {"id": c.id, "title": c.title, "visitor": (c.visitor_id or "")[:6], "origin": c.origin, "is_test": c.is_test,
+         "messages": n, "unanswered": missed, "updated_at": c.updated_at.isoformat()}
+        for c, n, missed in embed_chat_rows(db, e)
     ]
+
+
+def embed_chat_rows(db: Session, e: Embed, limit: int = 500, since=None, until=None, unanswered_only=False, include_tests=True):
+    """(chat, messages, answers it couldn't give) for an embed's conversations, newest first."""
+    counts = (
+        select(
+            Message.chat_id,
+            func.count(Message.id).label("n"),
+            func.count(Message.id).filter(Message.role == "assistant", Message.grounded.is_(False)).label("missed"),
+        )
+        .group_by(Message.chat_id)
+        .subquery()
+    )
+    q = select(Chat, counts.c.n, counts.c.missed).join(counts, counts.c.chat_id == Chat.id).where(Chat.embed_id == e.id)
+    if since:
+        q = q.where(Chat.updated_at >= since)
+    if until:
+        q = q.where(Chat.updated_at < until)
+    if unanswered_only:
+        q = q.where(counts.c.missed > 0)
+    if not include_tests:
+        q = q.where(Chat.is_test.is_(False))
+    return db.execute(q.order_by(Chat.updated_at.desc()).limit(limit)).all()
+
+
+@app.get("/api/embeds/{embed_id}/insights")
+def embed_insights(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return insights(db, own_embed(db, embed_id, user))
+
+
+@app.get("/api/embeds/{embed_id}/export")
+def export_conversations(
+    embed_id: int, format: str = "csv", start: str = "", end: str = "", unanswered: bool = False, tests: bool = False,
+    user: User = Depends(current_user), db: Session = Depends(get_db),
+):
+    """Every message of the matching conversations, one row each, as CSV or Excel. Dates are YYYY-MM-DD, end inclusive."""
+    e = own_embed(db, embed_id, user)
+    try:
+        since = datetime.fromisoformat(start).replace(tzinfo=timezone.utc) if start else None
+        until = datetime.fromisoformat(end).replace(tzinfo=timezone.utc) + timedelta(days=1) if end else None
+    except ValueError:
+        raise HTTPException(400, "Dates must look like 2026-10-28.")
+    if format not in ("csv", "xlsx"):
+        raise HTTPException(400, "Format must be csv or xlsx.")
+    chats = embed_chat_rows(db, e, limit=5000, since=since, until=until, unanswered_only=unanswered, include_tests=tests)
+    header = ["Conversation", "Visitor", "Website", "Test chat", "Time (UTC)", "From", "Message", "Answered from the website", "Sources", "Rating", "Rating comment"]
+    rows = [header]
+    for chat, _, _ in chats:
+        for m in with_feedback(db, messages_out(db, chat.id)):
+            fb = m.get("feedback") or {}
+            rows.append([
+                chat.id, (chat.visitor_id or "")[:6], chat.origin, "yes" if chat.is_test else "", m["created_at"][:19].replace("T", " "),
+                "Visitor" if m["role"] == "user" else "Bot", m["content"],
+                "" if m["role"] == "user" else ("yes" if m["grounded"] else "no"),
+                " ".join(s["url"] for s in m["sources"]), fb.get("rating", ""), fb.get("comment", ""),
+            ])
+    site = db.get(Site, e.site_id)
+    name = f"{re.sub(r'[^A-Za-z0-9]+', '-', site.name).strip('-').lower() or 'chatbot'}-conversations"
+    if format == "xlsx":
+        return Response(
+            to_xlsx(rows, "Conversations"),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{name}.xlsx"'},
+        )
+    buf = io.StringIO()
+    # Visitors write these messages: stop spreadsheet apps from running text that starts like a formula.
+    csv.writer(buf).writerows([[f"'{v}" if isinstance(v, str) and v[:1] in "=+-@" else v for v in row] for row in rows])
+    # A byte-order mark so Excel opens non-English text correctly.
+    return Response(
+        "﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}.csv"'},
+    )
 
 
 def with_feedback(db: Session, msgs: list[dict]) -> list[dict]:
@@ -665,6 +749,9 @@ def bot_info(db: Session, e: Embed, site: Site, owner: User) -> dict:
 def widget_config(key: str, request: Request, origin: str = "", preview: bool = False, db: Session = Depends(get_db)):
     limit_reads(request)
     e, site, owner = live_embed(db, request, key, origin, preview)
+    # Every page load on a website asks for this, so it doubles as "Check installation". Previews don't count.
+    if not (preview and not is_cross_site(request)):
+        note_seen(db, e, effective_origin(request, origin))
     return {**bot_info(db, e, site, owner), "color": e.color, "position": e.position, "style": style_of(e)}
 
 
@@ -690,7 +777,9 @@ def widget_ask(key: str, body: VisitorAsk, request: Request, db: Session = Depen
         chat = Chat(user_id=None, site_id=site.id, embed_id=e.id, visitor_id=body.visitor_id)
         db.add(chat)
     # Where the visitor is chatting from, so owners can see which websites use their bot.
-    chat.origin = "SiteBot preview" if body.preview and not is_cross_site(request) else clean_origin(effective_origin(request, body.origin))
+    testing = body.preview and not is_cross_site(request)
+    chat.origin = "SiteBot preview" if testing else clean_origin(effective_origin(request, body.origin))
+    chat.is_test = chat.is_test or testing
     db.commit()
     return ndjson(visitor_events(owner.id, chat.id, e.id, body.content.strip()))
 
@@ -899,14 +988,30 @@ def admin_review_embed(embed_id: int, body: EmbedReview, me: User = Depends(admi
     e = db.get(Embed, embed_id)
     if not e:
         raise HTTPException(404, "Embed not found")
-    if body.status is not None and body.status != e.status:
+    decided = body.status is not None and body.status != e.status
+    if decided:
         e.status, e.reviewed_by, e.reviewed_at = body.status, me.email, utcnow()
+        e.review_note = (body.note or "").strip() if body.status == "rejected" else ""
     if body.daily_cap_usd is not None:
         e.daily_cap_usd = body.daily_cap_usd
     if body.restrict_to_domain is not None:
         e.restrict_to_domain = body.restrict_to_domain
     db.commit()
-    return admin_embed_out(db, e, db.get(Site, e.site_id), db.get(User, e.owner_id))
+    site, owner = db.get(Site, e.site_id), db.get(User, e.owner_id)
+    if decided and e.status in ("approved", "rejected") and owner.id != me.id:
+        if e.status == "approved":
+            subject = f"SiteBot: {site.name} Chatbot is approved for your website"
+            text = (
+                f"Good news: {site.name} Chatbot is approved, so it now answers visitors on {site.domain}.\n\n"
+                "If you haven't yet, paste its snippet into your website: Add a chatbot to your website > Install."
+            )
+        else:
+            subject = f"SiteBot: {site.name} Chatbot wasn't approved"
+            text = f"An admin didn't approve putting {site.name} Chatbot on {site.domain}."
+            text += f"\n\nReason: {e.review_note}" if e.review_note else ""
+            text += "\n\nYou can change things and ask again from the chatbot's page."
+        accounts.notify([owner.email], subject, text + app_link(f"#/website/{e.id}"))
+    return admin_embed_out(db, e, site, owner)
 
 
 @app.post("/api/admin/sites/{site_id}/reindex")
