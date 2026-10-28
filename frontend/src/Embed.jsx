@@ -1,16 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useConfirm } from "./Confirm.jsx";
 import { api, money, plural, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
+import { Pager, useFitPageSize } from "./BotsPage.jsx";
 import { linkCitations, mdComponents, Sources } from "./answer.jsx";
+import { ArrowRightIcon, CodeIcon, PlusIcon, SearchIcon } from "./Icons.jsx";
 
-const STATUS = {
-  pending: { label: "Waiting for approval", cls: "queued" },
-  approved: { label: "Approved", cls: "ready" },
-  rejected: { label: "Not approved", cls: "failed" },
-};
+// "Add a chatbot to your website": a list of your website chatbots, and a page per chatbot with tabs
+// (Design, Install, Conversations, Usage & settings). The open chatbot and tab live in the URL (see App.jsx).
+
+/** The one status shown everywhere: Pending, Not approved, Live or Off. */
+export function pillOf(e) {
+  if (e.status === "pending") return { label: "Pending", cls: "pending" };
+  if (e.status === "rejected") return { label: "Not approved", cls: "failed" };
+  return e.enabled ? { label: "Live", cls: "ready" } : { label: "Off", cls: "off" };
+}
 
 function snippetFor(key) {
   return `<script src="${location.origin}/embed.js" data-bot="${key}" async></script>`;
@@ -34,6 +40,41 @@ function CopyBox({ text, label = "Copy" }) {
       >
         {copied ? "Copied ✓" : label}
       </button>
+    </div>
+  );
+}
+
+function CodeBlock({ code }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="code-block">
+      <pre>
+        <code>{code}</code>
+      </pre>
+      <button
+        className="btn small"
+        onClick={() =>
+          navigator.clipboard.writeText(code).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          })
+        }
+      >
+        {copied ? "Copied ✓" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+function Tabs({ tabs, value, onChange, className = "" }) {
+  return (
+    <div className={`tabs ${className}`} role="tablist">
+      {tabs.map(([id, label, badge]) => (
+        <button key={id} role="tab" aria-selected={value === id} className={`tab ${value === id ? "active" : ""}`} onClick={() => onChange(id)}>
+          {label}
+          {badge && <span className="pill accent tab-badge">{badge}</span>}
+        </button>
+      ))}
     </div>
   );
 }
@@ -129,20 +170,182 @@ export default function Chat() {
   };
 }
 
-const EXAMPLE_TABS = [
-  ["curl", "curl"],
-  ["node", "Node / Express"],
-  ["python", "Python"],
-  ["react", "React (browser)"],
-];
 
-function Developers({ embed, onChanged }) {
+function plainExample(embed, base) {
+  return `<!-- Your own chat UI in plain JavaScript. Works only on ${embed.site.domain}. -->
+<div id="answer"></div>
+<input id="question" placeholder="Ask a question"><button id="ask">Ask</button>
+
+<script src="${base}/sitebot-client.js"></script>
+<script>
+  const bot = SiteBot.connect({ key: "${embed.key}" });
+  document.getElementById("ask").onclick = async () => {
+    const out = document.getElementById("answer");
+    const reply = await bot.ask(document.getElementById("question").value, {
+      onToken: (text, soFar) => (out.textContent = soFar),   // streamed as it arrives
+    });
+    out.textContent = reply.answer;      // reply.sources = [{ n, title, url }]
+  };
+</script>`;
+}
+
+// ---------- Design ----------
+
+function DesignTab({ embed, onChanged, onDirty }) {
+  const [draft, setDraft] = useState(draftOf(embed));
+  const [previewRev, setPreviewRev] = useState(0);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const previewRef = useRef(null);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(embed));
+  const setStyle = (k, v) => setDraft((d) => ({ ...d, style: { ...d.style, [k]: v } }));
+
+  // Live preview: send every change to the preview straight away; Save keeps it.
+  const sendDraft = useCallback(() => {
+    previewRef.current?.contentWindow?.postMessage({ type: "sitebot:preview-style", draft }, location.origin);
+  }, [draft]);
+  useEffect(sendDraft, [sendDraft]);
+  useEffect(() => {
+    const onReady = (e) => {
+      if (e.source === previewRef.current?.contentWindow && e.data?.type === "sitebot:preview-ready") sendDraft();
+    };
+    window.addEventListener("message", onReady);
+    return () => window.removeEventListener("message", onReady);
+  }, [sendDraft]);
+  useEffect(() => onDirty?.(dirty), [dirty, onDirty]);
+  useEffect(() => () => onDirty?.(false), [onDirty]);
+
+  const save = async () => {
+    setError("");
+    setSaving(true);
+    try {
+      const updated = await api.patch(`/api/embeds/${embed.id}`, draft);
+      onChanged(updated);
+      setDraft(draftOf(updated)); // the server may have cleaned up the custom CSS
+      setPreviewRev((r) => r + 1);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="design-tab">
+      <div className="embed-settings">
+        <div className="embed-fields">
+          <label className="field">
+            <span>Colour</span>
+            <input type="color" value={draft.color} onChange={(e) => setDraft((d) => ({ ...d, color: e.target.value }))} />
+          </label>
+          <label className="field">
+            <span>Position</span>
+            <select value={draft.position} onChange={(e) => setDraft((d) => ({ ...d, position: e.target.value }))}>
+              <option value="right">Bottom right</option>
+              <option value="left">Bottom left</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Theme</span>
+            <select value={draft.style.theme} onChange={(e) => setStyle("theme", e.target.value)}>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="auto">Match visitor's device</option>
+            </select>
+          </label>
+        </div>
+        <div className="embed-fields">
+          <label className="field">
+            <span>Header title</span>
+            <input maxLength={60} placeholder={embed.site.name} value={draft.style.title} onChange={(e) => setStyle("title", e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Font</span>
+            <select value={draft.style.font} onChange={(e) => setStyle("font", e.target.value)}>
+              <option value="system">System</option>
+              <option value="sans">Sans serif</option>
+              <option value="serif">Serif</option>
+              <option value="rounded">Rounded</option>
+              <option value="mono">Monospace</option>
+            </select>
+          </label>
+        </div>
+        <div className="embed-fields">
+          <label className="field">
+            <span>Launcher icon</span>
+            <select value={draft.style.launcher_icon} onChange={(e) => setStyle("launcher_icon", e.target.value)}>
+              <option value="chat">Chat bubble</option>
+              <option value="help">Question mark</option>
+              <option value="sparkle">Sparkle</option>
+              <option value="none">No icon (label only)</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Launcher label</span>
+            <input maxLength={30} placeholder="None (round button)" value={draft.style.launcher_label} onChange={(e) => setStyle("launcher_label", e.target.value)} />
+          </label>
+        </div>
+        <label className="field">
+          <span>Corner rounding: {draft.style.radius}px</span>
+          <input type="range" min="0" max="28" value={draft.style.radius} onChange={(e) => setStyle("radius", Number(e.target.value))} />
+        </label>
+        <label className="field">
+          <span>Greeting</span>
+          <textarea
+            rows={2}
+            maxLength={300}
+            placeholder={`Hi, welcome to ${embed.site.name}! Ask me anything about ${embed.site.name}.`}
+            value={draft.greeting}
+            onChange={(e) => setDraft((d) => ({ ...d, greeting: e.target.value }))}
+          />
+        </label>
+        <details className="custom-css">
+          <summary>Custom CSS</summary>
+          <p className="muted small">
+            Applies only inside the chat window. Style classes such as <code>.w-head</code>, <code>.w-bubble</code>, <code>.w-msg.user .w-bubble-text</code>,{" "}
+            <code>.w-suggestion</code> and <code>.w-composer</code>. Imports and <code>url()</code> are removed.
+          </p>
+          <textarea
+            rows={5}
+            maxLength={5000}
+            spellCheck={false}
+            placeholder={".w-head { letter-spacing: 0.02em; }"}
+            value={draft.style.custom_css}
+            onChange={(e) => setStyle("custom_css", e.target.value)}
+          />
+        </details>
+        {error && <p className="error">{error}</p>}
+        <div className="embed-actions">
+          <button className="btn primary small" disabled={!dirty || saving} onClick={save}>
+            {saving ? "Saving…" : "Save changes"}
+          </button>
+          {dirty && (
+            <button className="btn ghost small" onClick={() => setDraft(draftOf(embed))}>
+              Discard
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="embed-preview">
+        <div className="preview-label muted small">Live preview{dirty ? " · unsaved changes" : ""}</div>
+        <iframe
+          ref={previewRef}
+          key={`${embed.key}-${previewRev}`}
+          title="Chat preview"
+          src={`/widget/${embed.key}?preview=1`}
+          onLoad={() => setTimeout(sendDraft, 50)}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------- Install ----------
+
+function ServerKey({ embed, onChanged }) {
   const [confirmAsk, confirmDialog] = useConfirm();
   const [secret, setSecret] = useState("");
-  const [tab, setTab] = useState("curl");
   const [error, setError] = useState("");
-  const base = location.origin;
-  const code = examples(embed, base)[tab];
 
   const makeKey = async () => {
     if (embed.server_key) {
@@ -180,73 +383,181 @@ function Developers({ embed, onChanged }) {
   };
 
   return (
-    <div className="developers">
-      <p className="muted small">
-        <strong className="dev-lead">Or build your own chat UI.</strong> Prefer your own design or tech stack? Use the same answers, with sources,
-        from your code. Usage, limits and conversations work the same and show up here. Full reference: <code>docs/API.md</code>.
-      </p>
-      <div className="dev-options">
-        <div className="way">
-          <strong>Your own UI in the browser</strong>
-          <p className="muted small">
-            Load <code>{base}/sitebot-client.js</code> and call <code>SiteBot.connect({"{"} key: "{embed.key}" {"}"})</code>. It uses your public key, so it only
-            works on {embed.site.domain}.
+    <div className="way">
+      <strong>Server key</strong>
+      <p className="muted small">Keep it on your server. Requests that use it from a browser are refused.</p>
+      {secret ? (
+        <div className="secret-box">
+          <p className="small">
+            <strong>Copy your key now.</strong> It won't be shown again.
           </p>
+          <CopyBox text={secret} />
         </div>
-        <div className="way">
-          <strong>Your own UI through your server</strong>
-          <p className="muted small">
-            Call the server API with a secret key. Keep it on your server: requests sent from a browser are refused.
-          </p>
-          {secret ? (
-            <div className="secret-box">
-              <p className="small">
-                <strong>Copy your key now.</strong> It won't be shown again.
-              </p>
-              <CopyBox text={secret} />
-            </div>
-          ) : embed.server_key ? (
-            <p className="small">
-              Server key <code>sk_…{embed.server_key.hint}</code>, created {timeAgo(embed.server_key.created_at)}.
-            </p>
-          ) : null}
-          <div className="embed-actions">
-            <button className="btn small" onClick={makeKey}>
-              {embed.server_key ? "Replace server key" : "Create server key"}
-            </button>
-            {embed.server_key && (
-              <button className="btn ghost small danger" onClick={revoke}>
-                Revoke
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      ) : embed.server_key ? (
+        <p className="small">
+          Server key <code>sk_…{embed.server_key.hint}</code>, created {timeAgo(embed.server_key.created_at)}.
+        </p>
+      ) : (
+        <p className="small muted">No server key yet.</p>
+      )}
       {error && <p className="error">{error}</p>}
-      <div className="tabs code-tabs" role="tablist">
-        {EXAMPLE_TABS.map(([id, label]) => (
-          <button key={id} role="tab" aria-selected={tab === id} className={`tab ${tab === id ? "active" : ""}`} onClick={() => setTab(id)}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="code-block">
-        <pre>
-          <code>{code}</code>
-        </pre>
-        <button className="btn small" onClick={() => navigator.clipboard.writeText(code)}>
-          Copy
+      <div className="embed-actions">
+        <button className="btn small" onClick={makeKey}>
+          {embed.server_key ? "Regenerate" : "Create server key"}
         </button>
+        {embed.server_key && (
+          <button className="btn ghost small danger" onClick={revoke}>
+            Revoke
+          </button>
+        )}
       </div>
       {confirmDialog}
     </div>
   );
 }
 
-function Conversations({ embed }) {
+/** "Check installation": the last time a website loaded this bot (recorded by the widget and sitebot-client.js). */
+function InstallCheck({ embed, compact = false }) {
+  const seen = embed.last_seen;
+  if (compact) {
+    return seen ? (
+      <span className="install-state ok">Installed on {seen.origin.replace(/^https?:\/\//, "")}</span>
+    ) : (
+      <span className="install-state">Not detected yet</span>
+    );
+  }
+  return (
+    <div className={`install-check ${seen ? "ok" : ""}`} role="status">
+      <strong>{seen ? "Installed" : "Not detected yet"}</strong>
+      <span className="muted small">
+        {seen
+          ? `Last seen on ${seen.origin.replace(/^https?:\/\//, "")} ${timeAgo(seen.at)}.`
+          : embed.status === "approved"
+            ? "Once the snippet is on your website, this updates the first time someone opens a page with it."
+            : "This updates once the chatbot is approved and someone opens a page with the snippet."}
+      </span>
+    </div>
+  );
+}
+
+const PLATFORMS = [
+  ["WordPress", ["In WordPress, go to Appearance > Theme File Editor (or install the free “WPCode” plugin and open Code Snippets > Header & Footer).", "Paste the snippet into the footer area, just before </body>.", "Save, then open your website to check the chat bubble."]],
+  ["Shopify", ["In Shopify admin, go to Online Store > Themes > … > Edit code.", "Open layout/theme.liquid and paste the snippet just before </body>.", "Save, then open your store to check the chat bubble."]],
+  ["Wix", ["In your Wix dashboard, go to Settings > Custom Code (under Advanced).", "Click + Add Custom Code, paste the snippet, choose All pages, and place it in Body – end.", "Apply, then publish your site."]],
+  ["Webflow", ["Open Project Settings > Custom Code.", "Paste the snippet in the Footer Code box (before </body> tag).", "Save, then publish your site."]],
+  ["Squarespace", ["Go to Settings > Advanced > Code Injection (Website > Pages > Custom Code on newer versions).", "Paste the snippet into the Footer box.", "Save; the chat appears on every page."]],
+  ["Google Tag Manager", ["In your GTM container, add a new tag of type Custom HTML.", "Paste the snippet and set the trigger to All Pages.", "Save, then Submit and Publish the container."]],
+];
+
+function PlatformGuides({ snippet }) {
+  return (
+    <div className="platform-guides">
+      <strong>How to add it on…</strong>
+      {PLATFORMS.map(([name, steps]) => (
+        <details key={name} className="guide">
+          <summary>{name}</summary>
+          <ol>
+            {steps.map((s) => (
+              <li key={s}>{s}</li>
+            ))}
+          </ol>
+          <CopyBox text={snippet} />
+        </details>
+      ))}
+      <p className="muted small">Any other website: paste the snippet just before &lt;/body&gt; on every page, or in your site's “footer code” setting.</p>
+    </div>
+  );
+}
+
+const INSTALL_TABS = [
+  ["snippet", "Website snippet", "Recommended"],
+  ["client", "Custom UI (browser)"],
+  ["server", "Server API"],
+];
+const SERVER_EXAMPLES = [
+  ["curl", "curl"],
+  ["node", "Node / Express"],
+  ["python", "Python"],
+];
+const CLIENT_EXAMPLES = [
+  ["plain", "Plain JavaScript"],
+  ["react", "React"],
+];
+
+function InstallTab({ embed, sub, onSub, onChanged }) {
+  const [serverLang, setServerLang] = useState("curl");
+  const [clientLang, setClientLang] = useState("plain");
+  const base = location.origin;
+  const ex = examples(embed, base);
+  const where = embed.restrict_to_domain ? `on ${embed.site.domain} and its subdomains` : "on any secure (https) website";
+  const tab = INSTALL_TABS.some(([id]) => id === sub) ? sub : "snippet";
+
+  return (
+    <div className="install-tab">
+      {embed.status !== "approved" && (
+        <p className="info-note">
+          You can install it now: it starts answering visitors as soon as an admin approves it. Until then the widget stays hidden on your website.
+        </p>
+      )}
+      <Tabs tabs={INSTALL_TABS} value={tab} onChange={onSub} className="sub-tabs" />
+
+      {tab === "snippet" && (
+        <div className="install-panel">
+          <p className="muted">
+            Our ready-made chat bubble, styled on the Design tab. Paste this line just before <code>&lt;/body&gt;</code> on every page where the chat should
+            appear. It works {where}.
+          </p>
+          <CopyBox text={snippetFor(embed.key)} />
+          <div className="embed-actions">
+            <a className="btn small" href={`/widget-test.html?key=${encodeURIComponent(embed.key)}`} target="_blank" rel="noreferrer">
+              Test it <ArrowRightIcon size={14} />
+            </a>
+            <span className="muted small">Opens a sample page with your widget, so you can try it before adding it to your website.</span>
+          </div>
+          <InstallCheck embed={embed} />
+          <PlatformGuides snippet={snippetFor(embed.key)} />
+        </div>
+      )}
+
+      {tab === "client" && (
+        <div className="install-panel">
+          <p className="muted">
+            Build your own chat UI in React, Vue or plain JavaScript, with no server code. Load <code>{base}/sitebot-client.js</code> and call{" "}
+            <code>SiteBot.connect({"{"} key: "{embed.key}" {"}"})</code>. It uses your public key, so it works {where}.
+          </p>
+          <CopyBox text={`<script src="${base}/sitebot-client.js"></script>`} />
+          <Tabs tabs={CLIENT_EXAMPLES} value={clientLang} onChange={setClientLang} className="code-tabs" />
+          <CodeBlock code={clientLang === "react" ? ex.react : plainExample(embed, base)} />
+        </div>
+      )}
+
+      {tab === "server" && (
+        <div className="install-panel">
+          <p className="muted">
+            Ask from your own backend with a secret server key, then show the answers in any UI. Usage, limits and conversations work the same and show up here.
+            Full reference: <code>docs/API.md</code> in the SiteBot repo.
+          </p>
+          <ServerKey embed={embed} onChanged={onChanged} />
+          <Tabs tabs={SERVER_EXAMPLES} value={serverLang} onChange={setServerLang} className="code-tabs" />
+          <CodeBlock code={ex[serverLang]} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Conversations ----------
+
+function ConversationsTab({ embed }) {
   const [chats, setChats] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [page, setPage] = useState(1);
+  const [onlyMissed, setOnlyMissed] = useState(false);
+  const [showTests, setShowTests] = useState(true);
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const listRef = useRef(null);
   useEffect(() => {
     api.get(`/api/embeds/${embed.id}/chats`).then(setChats).catch(() => setChats([]));
   }, [embed.id]);
@@ -254,63 +565,194 @@ function Conversations({ embed }) {
     if (!openId) return;
     api.get(`/api/embeds/${embed.id}/chats/${openId}/messages`).then(setMessages).catch(() => setMessages([]));
   }, [embed.id, openId]);
+  useEffect(() => setPage(1), [onlyMissed, showTests, start, end]);
+
+  const shown = (chats || []).filter((c) => {
+    const day = c.updated_at.slice(0, 10);
+    return (!onlyMissed || c.unanswered > 0) && (showTests || !c.is_test) && (!start || day >= start) && (!end || day <= end);
+  });
+  const pageSize = useFitPageSize(listRef, 80, [shown.length > 0, onlyMissed, showTests]);
 
   if (!chats) return <p className="muted small">Loading…</p>;
-  if (!chats.length) return <p className="muted small">No visitor conversations yet.</p>;
+  if (!chats.length)
+    return <p className="muted">No visitor conversations yet. They show up here as soon as someone chats with this bot on your website.</p>;
+  const pages = Math.max(1, Math.ceil(shown.length / pageSize));
+  const current = Math.min(page, pages);
+  const visible = shown.slice((current - 1) * pageSize, current * pageSize);
+  const missedTotal = chats.filter((c) => c.unanswered > 0 && !c.is_test).length;
+  const exportUrl = (format) =>
+    `/api/embeds/${embed.id}/export?` + new URLSearchParams({ format, start, end, unanswered: onlyMissed, tests: showTests }).toString();
+
   return (
-    <div className="embed-convos">
-      <ul className="convo-list">
-        {chats.map((c) => (
-          <li key={c.id}>
-            <button className={`convo-row ${openId === c.id ? "active" : ""}`} onClick={() => setOpenId(c.id)}>
-              <span className="convo-title">{c.title}</span>
-              <span className="muted small">
-                Visitor {c.visitor}{c.origin ? ` on ${c.origin.replace(/^https?:\/\//, "")}` : ""} · {plural(c.messages, "message")} · {timeAgo(c.updated_at)}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {openId && (
-        <div className="convo-view">
-          {messages.map((m) => (
-            <div key={m.id} className={`convo-msg ${m.role}`}>
-              <span className="convo-role">{m.role === "user" ? "Visitor" : "Bot"}</span>
-              {m.role === "assistant" ? (
-                <div>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                    {linkCitations(m.content, m.sources)}
-                  </ReactMarkdown>
-                  <Sources sources={m.sources} />
-                  {m.feedback && (
-                    <span className={`pill ${m.feedback.rating === "up" ? "accent" : ""}`}>
-                      Visitor rated this {m.feedback.rating === "up" ? "👍 helpful" : "👎 not helpful"}
-                      {m.feedback.comment ? `: "${m.feedback.comment}"` : ""}
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <p>{m.content}</p>
-              )}
-            </div>
-          ))}
+    <div className="convos-tab">
+      <div className="convo-toolbar">
+        <label className="check">
+          <input type="checkbox" checked={onlyMissed} onChange={(e) => setOnlyMissed(e.target.checked)} />
+          Couldn't answer <span className="count">{missedTotal}</span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={showTests} onChange={(e) => setShowTests(e.target.checked)} />
+          Show test chats
+        </label>
+        <label className="date-field">
+          <span className="muted small">From</span>
+          <input type="date" value={start} max={end || undefined} onChange={(e) => setStart(e.target.value)} />
+        </label>
+        <label className="date-field">
+          <span className="muted small">To</span>
+          <input type="date" value={end} min={start || undefined} onChange={(e) => setEnd(e.target.value)} />
+        </label>
+        <div className="export-btns">
+          <span className="muted small">Export</span>
+          <a className="btn small" href={exportUrl("xlsx")} download>
+            Excel
+          </a>
+          <a className="btn small" href={exportUrl("csv")} download>
+            CSV
+          </a>
         </div>
-      )}
+      </div>
+      <p className="muted small">The export includes every message of the conversations shown, using the same filters and dates.</p>
+
+      <div className="embed-convos">
+        <div>
+          {shown.length ? (
+            <ul className="convo-list" ref={listRef}>
+              {visible.map((c) => (
+                <li key={c.id}>
+                  <button className={`convo-row ${openId === c.id ? "active" : ""}`} onClick={() => setOpenId(c.id)}>
+                    <span className="convo-title">
+                      {c.title}
+                      {c.is_test && <span className="pill">Test</span>}
+                      {c.unanswered > 0 && <span className="pill warn-pill">Couldn't answer {c.unanswered}</span>}
+                    </span>
+                    <span className="muted small">
+                      {c.is_test ? "Your test" : `Visitor ${c.visitor}`}
+                      {c.origin && !c.is_test ? ` on ${c.origin.replace(/^https?:\/\//, "")}` : ""} · {plural(c.messages, "message")} · {timeAgo(c.updated_at)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted small">No conversations match these filters.</p>
+          )}
+          <Pager page={current} pages={pages} onPage={setPage} />
+        </div>
+        <div className="convo-view">
+          {!openId && <p className="muted small">Pick a conversation to read it.</p>}
+          {openId &&
+            messages.map((m) => (
+              <div key={m.id} className={`convo-msg ${m.role} ${m.role === "assistant" && !m.grounded ? "missed" : ""}`}>
+                <span className="convo-role">
+                  {m.role === "user" ? "Visitor" : "Bot"}
+                  {m.role === "assistant" && !m.grounded && <span className="pill warn-pill">Couldn't answer from the website</span>}
+                </span>
+                {m.role === "assistant" ? (
+                  <div>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                      {linkCitations(m.content, m.sources)}
+                    </ReactMarkdown>
+                    <Sources sources={m.sources} />
+                    {m.feedback && (
+                      <span className={`pill ${m.feedback.rating === "up" ? "accent" : ""}`}>
+                        Visitor rated this {m.feedback.rating === "up" ? "👍 helpful" : "👎 not helpful"}
+                        {m.feedback.comment ? `: "${m.feedback.comment}"` : ""}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p>{m.content}</p>
+                )}
+              </div>
+            ))}
+        </div>
+      </div>
     </div>
   );
 }
 
-function EmbedCard({ embed, me, onChanged, onRemoved }) {
+/** Chats per day as simple bars, newest on the right. */
+function DayChart({ days }) {
+  const max = Math.max(1, ...days.map((d) => d.chats));
+  const total = days.reduce((s, d) => s + d.chats, 0);
+  return (
+    <div className="day-chart">
+      <div className="day-bars" role="img" aria-label={`${total} chats in the last ${days.length} days`}>
+        {days.map((d) => (
+          <div key={d.date} className="day-bar" title={`${d.date}: ${plural(d.chats, "chat")}`}>
+            <span style={{ height: `${(d.chats / max) * 100}%` }} />
+          </div>
+        ))}
+      </div>
+      <div className="day-axis muted small">
+        <span>{days[0]?.date.slice(5)}</span>
+        <span>
+          {plural(total, "chat")} · peak {max === 1 && !total ? 0 : max} a day
+        </span>
+        <span>today</span>
+      </div>
+    </div>
+  );
+}
+
+function Insights({ embed }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get(`/api/embeds/${embed.id}/insights`).then(setData).catch(() => setData({ days: [], top_questions: [], unanswered: [] }));
+  }, [embed.id]);
+  if (!data) return <p className="muted small">Loading insights…</p>;
+  return (
+    <>
+      <section className="way insights-chart">
+        <strong>Chats per day (last 30 days)</strong>
+        <DayChart days={data.days} />
+        <p className="muted small">Test chats aren't counted.</p>
+      </section>
+      <section className="way">
+        <strong>Most asked</strong>
+        {data.top_questions.length ? (
+          <ol className="q-list">
+            {data.top_questions.map((q) => (
+              <li key={q.question}>
+                <span>{q.question}</span>
+                <span className="muted small">{q.count}×</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="muted small">No questions yet.</p>
+        )}
+      </section>
+      <section className="way">
+        <strong>Couldn't answer</strong>
+        <p className="muted small">Questions your website doesn't cover yet. Adding that information to your website helps the bot answer them.</p>
+        {data.unanswered.length ? (
+          <ol className="q-list">
+            {data.unanswered.map((q) => (
+              <li key={q.question}>
+                <span>{q.question}</span>
+                <span className="muted small">
+                  {q.count}× · {timeAgo(q.last_at)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="muted small">Nothing yet: every question so far was answered from the website.</p>
+        )}
+      </section>
+    </>
+  );
+}
+
+// ---------- Usage & settings ----------
+
+function UsageTab({ embed, me, onChanged, onRemoved, onInstall }) {
   const [confirmAsk, confirmDialog] = useConfirm();
-  const [draft, setDraft] = useState(draftOf(embed));
-  const [previewRev, setPreviewRev] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [showChats, setShowChats] = useState(false);
+  const [cap, setCap] = useState(String(embed.daily_cap_usd));
   const [error, setError] = useState("");
-  const status = STATUS[embed.status] || STATUS.pending;
-  const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(embed));
-  const setStyle = (k, v) => setDraft((d) => ({ ...d, style: { ...d.style, [k]: v } }));
-  const snippet = snippetFor(embed.key);
+  const pct = embed.daily_cap_usd > 0 ? Math.min(100, (embed.spent_today_usd / embed.daily_cap_usd) * 100) : 100;
 
   const act = async (fn) => {
     setError("");
@@ -321,349 +763,457 @@ function EmbedCard({ embed, me, onChanged, onRemoved }) {
     }
   };
 
-  const save = () =>
-    act(async () => {
-      const updated = await api.patch(`/api/embeds/${embed.id}`, draft);
-      setPreviewRev((r) => r + 1);
-      setDraft(draftOf(updated)); // the server may have cleaned up the custom CSS
-      return updated;
-    });
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(snippet);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setError("Couldn't copy. Select the code and copy it yourself.");
-    }
-  };
-
   return (
-    <section className="embed-card">
-      <header className="embed-card-head">
-        <BotIcon site={embed.site} size={32} />
-        <div className="embed-card-meta">
-          <h2>{embed.site.name} Chatbot</h2>
-          <span className="muted small">{embed.restrict_to_domain ? `Works on ${embed.site.domain} and its subdomains` : "Works on any website"}</span>
+    <div className="usage-tab">
+      {error && <p className="error">{error}</p>}
+      <section className="way">
+        <strong>Today</strong>
+        <div className="usage-line">
+          <span>
+            {money(embed.spent_today_usd)} of {money(embed.daily_cap_usd)} daily limit
+          </span>
+          <span className="muted small">{plural(embed.chats_today, "conversation")} today</span>
         </div>
-        <span className={`status ${status.cls}`}>{status.label}</span>
-        {embed.status === "approved" && (
-          <button
-            role="switch"
-            aria-checked={embed.enabled}
-            aria-label="Show this chatbot on the website"
-            title={embed.enabled ? "On: visitors can chat" : "Off: hidden from visitors"}
-            className={`switch ${embed.enabled ? "on" : ""}`}
-            onClick={() => act(() => api.patch(`/api/embeds/${embed.id}`, { enabled: !embed.enabled }))}
-          >
-            <span />
-          </button>
-        )}
-      </header>
-
-      {embed.status === "pending" && (
-        <p className="muted small">An admin needs to approve this before it answers visitors. You can set it up and add the code to your website now.</p>
-      )}
-      {embed.status === "rejected" && (
+        <div className="bar">
+          <div className={`bar-fill ${pct >= 90 ? "danger" : pct >= 70 ? "warn" : ""}`} style={{ width: `${pct}%` }} />
+        </div>
         <p className="muted small">
-          An admin didn't approve this.{" "}
-          <button className="link-btn" onClick={() => act(() => api.post("/api/embeds", { site_id: embed.site_id }))}>
-            Ask again
-          </button>
+          Visitors' questions are charged to the owner's credits. When the daily limit is reached, the chat pauses politely until midnight UTC. All time:{" "}
+          {money(embed.spent_total_usd)} across {plural(embed.conversations, "conversation")} · rated 👍 {embed.feedback.up} · 👎 {embed.feedback.down}.
         </p>
-      )}
-      <div className="setting-row domain-lock">
-        <div>
-          <strong>Only allow on {embed.site.domain}</strong>
-          <p className="muted small">
-            {embed.restrict_to_domain
-              ? `On: it works only on ${embed.site.domain} and its subdomains.`
-              : "Off: any secure (https) website can use this chatbot."}
-            {me.role !== "admin" && " Only an admin can change this."}
-          </p>
-        </div>
-        <button
-          role="switch"
-          aria-checked={embed.restrict_to_domain}
-          aria-label={`Only allow on ${embed.site.domain}`}
-          className={`switch ${embed.restrict_to_domain ? "on" : ""}`}
-          disabled={me.role !== "admin"}
-          title={me.role !== "admin" ? "Only an admin can change this" : ""}
-          onClick={async () => {
-            if (embed.restrict_to_domain) {
+        {me.role === "admin" ? (
+          <form
+            className="inline-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              act(() => api.patch(`/api/admin/embeds/${embed.id}`, { daily_cap_usd: Number(cap) }));
+            }}
+          >
+            <label className="muted small" htmlFor="cap">
+              Daily limit (USD)
+            </label>
+            <input id="cap" type="number" min="0" step="0.01" value={cap} onChange={(e) => setCap(e.target.value)} />
+            {Number(cap) !== embed.daily_cap_usd && <button className="btn small primary">Save</button>}
+          </form>
+        ) : (
+          <p className="muted small">Only an admin can change the daily limit.</p>
+        )}
+      </section>
+
+      <section className="way">
+        <strong>Keys</strong>
+        <div className="key-row">
+          <div>
+            <div className="small">
+              Public code <code>{embed.key}</code>
+            </div>
+            <div className="muted small">Used by the website snippet and sitebot-client.js.</div>
+          </div>
+          <button
+            className="btn ghost small"
+            onClick={async () => {
               const ok = await confirmAsk({
-                title: "Let any website use this chatbot?",
-                message: "Any website can use this bot, and every question is charged to the owner's credits. Limits and the daily cap still apply.",
-                confirmLabel: "Allow any website",
+                title: "Make a new public code?",
+                message: "The code on your website stops working straight away. You'll need to paste the new snippet there.",
+                confirmLabel: "Make new code",
+              });
+              if (ok) act(() => api.post(`/api/embeds/${embed.id}/rotate-key`));
+            }}
+          >
+            Regenerate
+          </button>
+        </div>
+        <div className="key-row">
+          <div>
+            <div className="small">
+              Server key {embed.server_key ? <code>sk_…{embed.server_key.hint}</code> : <span className="muted">not created</span>}
+            </div>
+            <div className="muted small">For the server API.</div>
+          </div>
+          <button className="btn ghost small" onClick={onInstall}>
+            Manage
+          </button>
+        </div>
+      </section>
+
+      <Insights embed={embed} />
+
+      <section className="way danger-zone">
+        <strong>Danger zone</strong>
+        <div className="key-row">
+          <div className="muted small">Removes the chat from your website and deletes its visitor conversations. You can't undo this.</div>
+          <button
+            className="btn small danger-solid"
+            onClick={async () => {
+              const ok = await confirmAsk({
+                title: `Remove ${embed.site.name} Chatbot from your website?`,
+                message: "The chat disappears from your website and its visitor conversations are deleted. You can't undo this.",
+                confirmLabel: "Remove",
                 danger: true,
               });
               if (!ok) return;
-            }
-            act(() => api.patch(`/api/embeds/${embed.id}`, { restrict_to_domain: !embed.restrict_to_domain }));
-          }}
-        >
-          <span />
-        </button>
-      </div>
-      {!embed.restrict_to_domain && (
-        <p className="warn-note">Any website can use this bot, and every question is charged to the owner's credits.</p>
-      )}
-      {error && <p className="error">{error}</p>}
-
-      <div className="embed-panes">
-        <div className="embed-pane">
-          <h3 className="pane-title">Our chat widget</h3>
-          <p className="muted small">A ready-made chat bubble for your website. Style it here; the preview shows what visitors see once you save.</p>
-          <div className="widget-editor">
-        <div className="embed-settings">
-
-          
-          <div className="embed-fields">
-            <label className="field">
-              <span>Colour</span>
-              <input type="color" value={draft.color} onChange={(e) => setDraft((d) => ({ ...d, color: e.target.value }))} />
-            </label>
-            <label className="field">
-              <span>Position</span>
-              <select value={draft.position} onChange={(e) => setDraft((d) => ({ ...d, position: e.target.value }))}>
-                <option value="right">Bottom right</option>
-                <option value="left">Bottom left</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Theme</span>
-              <select value={draft.style.theme} onChange={(e) => setStyle("theme", e.target.value)}>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="auto">Match visitor's device</option>
-              </select>
-            </label>
-          </div>
-          <div className="embed-fields">
-            <label className="field">
-              <span>Header title</span>
-              <input maxLength={60} placeholder={embed.site.name} value={draft.style.title} onChange={(e) => setStyle("title", e.target.value)} />
-            </label>
-            <label className="field">
-              <span>Font</span>
-              <select value={draft.style.font} onChange={(e) => setStyle("font", e.target.value)}>
-                <option value="system">System</option>
-                <option value="sans">Sans serif</option>
-                <option value="serif">Serif</option>
-                <option value="rounded">Rounded</option>
-                <option value="mono">Monospace</option>
-              </select>
-            </label>
-          </div>
-          <div className="embed-fields">
-            <label className="field">
-              <span>Launcher icon</span>
-              <select value={draft.style.launcher_icon} onChange={(e) => setStyle("launcher_icon", e.target.value)}>
-                <option value="chat">Chat bubble</option>
-                <option value="help">Question mark</option>
-                <option value="sparkle">Sparkle</option>
-                <option value="none">No icon (label only)</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Launcher label</span>
-              <input maxLength={30} placeholder="None (round button)" value={draft.style.launcher_label} onChange={(e) => setStyle("launcher_label", e.target.value)} />
-            </label>
-          </div>
-          <label className="field">
-            <span>Corner rounding: {draft.style.radius}px</span>
-            <input type="range" min="0" max="28" value={draft.style.radius} onChange={(e) => setStyle("radius", Number(e.target.value))} />
-          </label>
-          <label className="field">
-            <span>Greeting</span>
-            <textarea
-              rows={2}
-              maxLength={300}
-              placeholder={`Hi, welcome to ${embed.site.name}! Ask me anything about ${embed.site.name}.`}
-              value={draft.greeting}
-              onChange={(e) => setDraft((d) => ({ ...d, greeting: e.target.value }))}
-            />
-          </label>
-          <details className="custom-css">
-            <summary>Custom CSS</summary>
-            <p className="muted small">
-              Applies only inside the chat window. Style classes such as <code>.w-head</code>, <code>.w-bubble</code>, <code>.w-msg.user .w-bubble-text</code>,{" "}
-              <code>.w-suggestion</code> and <code>.w-composer</code>. Imports and <code>url()</code> are removed.
-            </p>
-            <textarea
-              rows={5}
-              maxLength={5000}
-              spellCheck={false}
-              placeholder={".w-head { letter-spacing: 0.02em; }"}
-              value={draft.style.custom_css}
-              onChange={(e) => setStyle("custom_css", e.target.value)}
-            />
-          </details>
-          <button className="btn primary small" disabled={!dirty} onClick={save}>
-            Save changes
+              try {
+                await api.del(`/api/embeds/${embed.id}`);
+                onRemoved(embed.id);
+              } catch (e) {
+                setError(e.message);
+              }
+            }}
+          >
+            Remove embed
           </button>
         </div>
-
-        <div className="embed-preview">
-          <div className="preview-label muted small">Preview{dirty ? " (save to update)" : ""}</div>
-          <iframe key={`${embed.key}-${previewRev}`} title="Chat preview" src={`/widget/${embed.key}?preview=1`} />
-        </div>
-          </div>
-        </div>
-
-        <div className="embed-pane">
-          <h3 className="pane-title">Add it to your website</h3>
-          <div className="way">
-            <strong>Our widget: one line of code</strong>
-            <p className="muted small">Paste it just before &lt;/body&gt; on every page where the chat should appear.</p>
-            <div className="snippet">
-              <code>{snippet}</code>
-              <button className="btn small" onClick={copy}>
-                {copied ? "Copied ✓" : "Copy"}
-              </button>
-            </div>
-          </div>
-          <Developers embed={embed} onChanged={onChanged} />
-        </div>
-      </div>
-
-      <div className="embed-usage">
-          <h3 className="section-title">Usage</h3>
-          <p className="muted small">
-            Visitors' questions use your credits. Today: {money(embed.spent_today_usd)} of the {money(embed.daily_cap_usd)} daily limit. All
-            time: {money(embed.spent_total_usd)} across {plural(embed.conversations, "conversation")}. Visitors rated answers 👍{" "}
-            {embed.feedback.up} · 👎 {embed.feedback.down}.
-          </p>
-          <div className="embed-actions">
-            <button className="btn ghost small" onClick={() => setShowChats((v) => !v)}>
-              {showChats ? "Hide conversations" : "Visitor conversations"}
-            </button>
-            <button
-              className="btn ghost small"
-              onClick={async () => {
-                const ok = await confirmAsk({
-                  title: "Make a new code?",
-                  message: "The code on your website stops working straight away. You'll need to paste the new code there.",
-                  confirmLabel: "Make new code",
-                });
-                if (ok) act(() => api.post(`/api/embeds/${embed.id}/rotate-key`));
-              }}
-            >
-              New code
-            </button>
-            <button
-              className="btn ghost small danger"
-              onClick={async () => {
-                const ok = await confirmAsk({
-                  title: "Remove from your website?",
-                  message: "The chat disappears from your website and its visitor conversations are deleted. You can't undo this.",
-                  confirmLabel: "Remove",
-                  danger: true,
-                });
-                if (!ok) return;
-                try {
-                  await api.del(`/api/embeds/${embed.id}`);
-                  onRemoved(embed.id);
-                } catch (e) {
-                  setError(e.message);
-                }
-              }}
-            >
-              Remove
-            </button>
-          </div>
-      </div>
-
-      {showChats && <Conversations embed={embed} />}
+      </section>
       {confirmDialog}
-    </section>
+    </div>
   );
 }
 
-export default function EmbedPage({ me, sites }) {
-  const [embeds, setEmbeds] = useState(null);
-  const [siteId, setSiteId] = useState(null);
+// ---------- One chatbot's page ----------
+
+const BOT_TABS = [
+  ["design", "Design"],
+  ["install", "Install"],
+  ["conversations", "Conversations"],
+  ["usage", "Usage & settings"],
+];
+
+function EmbedBot({ embed, me, tab, sub, onRoute, onChanged, onRemoved }) {
+  const [confirmAsk, confirmDialog] = useConfirm();
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const load = useCallback(() => api.get("/api/embeds").then(setEmbeds).catch((e) => setError(e.message)), []);
+  const pill = pillOf(embed);
+  const current = BOT_TABS.some(([id]) => id === tab) ? tab : "design";
+  // Unsaved Design changes: ask before switching tabs or leaving, and before closing or reloading the page.
+  const dirtyRef = useRef(false);
+  const setDirty = useCallback((v) => {
+    dirtyRef.current = v;
+  }, []);
   useEffect(() => {
-    load();
-  }, [load]);
-
-  // Pick a bot first: the ones already on a website, then the others you can add.
-  const embedBySite = Object.fromEntries((embeds || []).map((e) => [e.site_id, e]));
-  const choices = sites
-    .filter((s) => embedBySite[s.id] || (s.ready && (s.created_by === me.id || me.role === "admin")))
-    .sort((a, b) => !!embedBySite[b.id] - !!embedBySite[a.id] || a.name.localeCompare(b.name));
-  const selected = siteId ?? (embeds?.[0]?.site_id || "");
-  const embed = embedBySite[selected];
-  const site = sites.find((s) => s.id === Number(selected));
-
-  const request = async () => {
+    const onUnload = (e) => {
+      if (dirtyRef.current) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, []);
+  const go = async (route) => {
+    if (dirtyRef.current) {
+      const ok = await confirmAsk({
+        title: "Discard changes?",
+        message: "You have design changes that aren't saved yet.",
+        confirmLabel: "Discard changes",
+        danger: true,
+      });
+      if (!ok) return;
+      dirtyRef.current = false;
+    }
+    onRoute(route);
+  };
+  const act = async (fn) => {
     setError("");
-    setBusy(true);
     try {
-      const created = await api.post("/api/embeds", { site_id: Number(selected) });
-      setEmbeds((list) => [created, ...(list || [])]);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
+      onChanged(await fn());
+    } catch (e) {
+      setError(e.message);
     }
   };
 
   return (
     <div className="page wide embed-page">
-      <div className="page-head">
-        <div>
-          <h1>Add a chatbot to your website</h1>
-          <p className="muted">Pick a chatbot, then use our chat widget or build your own UI. It only works on that bot's website, and an admin approves it first.</p>
+      <button className="link-btn back-link" onClick={() => go({})}>
+        ← Your website chatbots
+      </button>
+      <header className="bot-head">
+        <BotIcon site={embed.site} size={40} />
+        <div className="bot-head-meta">
+          <h1>{embed.site.name} Chatbot</h1>
+          <span className="muted small">
+            {embed.restrict_to_domain ? `Works on ${embed.site.domain} and its subdomains` : "Works on any website"}
+          </span>
         </div>
-        <label className="bot-picker">
-          <span className="muted small">Chatbot</span>
-          <select value={selected} onChange={(e) => setSiteId(Number(e.target.value) || "")} aria-label="Chatbot">
-            <option value="">{choices.length ? "Choose one of your chatbots" : "No chatbots to add yet"}</option>
+        <span className={`status ${pill.cls}`}>{pill.label}</span>
+        <div className="head-switches">
+          {embed.status === "approved" && (
+            <label className="switch-label">
+              <span className="small">{embed.enabled ? "On" : "Off"}</span>
+              <button
+                role="switch"
+                aria-checked={embed.enabled}
+                aria-label="Show this chatbot on the website"
+                className={`switch ${embed.enabled ? "on" : ""}`}
+                onClick={() => act(() => api.patch(`/api/embeds/${embed.id}`, { enabled: !embed.enabled }))}
+              >
+                <span />
+              </button>
+            </label>
+          )}
+          <label className="switch-label" title={me.role !== "admin" ? "Only an admin can change this" : ""}>
+            <span className="small">Only on {embed.site.domain}</span>
+            <button
+              role="switch"
+              aria-checked={embed.restrict_to_domain}
+              aria-label={`Only allow on ${embed.site.domain}`}
+              className={`switch ${embed.restrict_to_domain ? "on" : ""}`}
+              disabled={me.role !== "admin"}
+              onClick={async () => {
+                if (embed.restrict_to_domain) {
+                  const ok = await confirmAsk({
+                    title: "Let any website use this chatbot?",
+                    message: "Any website can use this bot, and every question is charged to the owner's credits. Limits and the daily cap still apply.",
+                    confirmLabel: "Allow any website",
+                    danger: true,
+                  });
+                  if (!ok) return;
+                }
+                act(() => api.patch(`/api/embeds/${embed.id}`, { restrict_to_domain: !embed.restrict_to_domain }));
+              }}
+            >
+              <span />
+            </button>
+          </label>
+        </div>
+      </header>
+
+      {embed.status === "pending" && (
+        <div className="banner pending" role="status">
+          <strong>Waiting for admin approval.</strong> You can design and install it now; it starts answering visitors once an admin approves it.
+        </div>
+      )}
+      {embed.status === "rejected" && (
+        <div className="banner rejected" role="status">
+          <strong>An admin didn't approve this.</strong>{embed.review_note ? ` Reason: ${embed.review_note}` : ""}{" "}
+          <button className="link-btn" onClick={() => act(() => api.post("/api/embeds", { site_id: embed.site_id }))}>
+            Ask again
+          </button>
+        </div>
+      )}
+      {!embed.restrict_to_domain && (
+        <p className="warn-note">Any website can use this bot, and every question is charged to the owner's credits.</p>
+      )}
+      {me.role !== "admin" && <p className="muted small lock-note">Only an admin can change which websites may use this chatbot.</p>}
+      {error && <p className="error">{error}</p>}
+
+      <Tabs tabs={BOT_TABS} value={current} onChange={(t) => t !== current && go({ embedId: embed.id, tab: t })} className="bot-tabs" />
+      {current === "design" && <DesignTab embed={embed} onChanged={onChanged} onDirty={setDirty} />}
+      {current === "install" && (
+        <InstallTab embed={embed} sub={sub} onSub={(s) => onRoute({ embedId: embed.id, tab: "install", sub: s })} onChanged={onChanged} />
+      )}
+      {current === "conversations" && <ConversationsTab embed={embed} />}
+      {current === "usage" && (
+        <UsageTab
+          key={embed.daily_cap_usd}
+          embed={embed}
+          me={me}
+          onChanged={onChanged}
+          onRemoved={onRemoved}
+          onInstall={() => onRoute({ embedId: embed.id, tab: "install", sub: "server" })}
+        />
+      )}
+      {confirmDialog}
+    </div>
+  );
+}
+
+// ---------- The list ----------
+
+function AddToWebsite({ me, choices, onCreated, onCancel }) {
+  const [siteId, setSiteId] = useState(choices[0]?.id || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const create = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      onCreated(await api.post("/api/embeds", { site_id: Number(siteId) }));
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="add-embed" onSubmit={create}>
+      <strong>Which chatbot?</strong>
+      {choices.length ? (
+        <>
+          <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Chatbot">
             {choices.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} Chatbot ({s.domain}){embedBySite[s.id] ? ` · ${STATUS[embedBySite[s.id].status]?.label || ""}` : ""}
+                {s.name} Chatbot ({s.domain})
               </option>
             ))}
           </select>
-        </label>
-      </div>
+          <p className="muted small">
+            {me.role === "admin" ? "As an admin, yours is approved straight away." : "An admin approves it before it answers visitors; you can set it up meanwhile."}
+          </p>
+        </>
+      ) : (
+        <p className="muted small">
+          All your chatbots are already on a website, or you haven't created one yet. You can add chatbots you created; make one with + New chatbot.
+        </p>
+      )}
       {error && <p className="error">{error}</p>}
-      {embeds && !choices.length && (
-        <p className="muted">You can add chatbots you created. Create one for your website first with + New chatbot, then come back here.</p>
+      <div className="embed-actions">
+        <button className="btn primary" disabled={!siteId || busy}>
+          {me.role === "admin" ? "Add to website" : "Request"}
+        </button>
+        <button type="button" className="btn ghost" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function EmbedList({ me, embeds, choices, onOpen, onCreated }) {
+  const [adding, setAdding] = useState(false);
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const gridRef = useRef(null);
+  const q = query.trim().toLowerCase();
+  const shown = embeds.filter(
+    (e) => (status === "all" || pillOf(e).label.toLowerCase() === status) && (!q || `${e.site.name} ${e.site.domain}`.toLowerCase().includes(q))
+  );
+  const pageSize = useFitPageSize(gridRef, 96, [shown.length > 0, adding, status]);
+  const pages = Math.max(1, Math.ceil(shown.length / pageSize));
+  const current = Math.min(page, pages);
+  const visible = shown.slice((current - 1) * pageSize, current * pageSize);
+  useEffect(() => setPage(1), [q, status]);
+  const counts = { all: embeds.length };
+  for (const e of embeds) counts[pillOf(e).label.toLowerCase()] = (counts[pillOf(e).label.toLowerCase()] || 0) + 1;
+
+  return (
+    <div className="page wide embed-page">
+      <div className="page-head">
+        <div>
+          <h1>Your website chatbots</h1>
+          <p className="muted">Put your chatbots on their own websites: style our chat widget, or build your own UI with our API.</p>
+        </div>
+        {!adding && embeds.length > 0 && (
+          <button className="btn primary" onClick={() => setAdding(true)}>
+            <PlusIcon size={16} /> Add to a website
+          </button>
+        )}
+      </div>
+      {adding && <AddToWebsite me={me} choices={choices} onCreated={onCreated} onCancel={() => setAdding(false)} />}
+      {embeds.length > 0 && (
+        <div className="bots-toolbar">
+          <div className="tabs status-filter" role="tablist" aria-label="Filter by status">
+            {[["all", "All"], ["live", "Live"], ["pending", "Pending"], ["off", "Off"]].map(([id, label]) => (
+              <button key={id} role="tab" aria-selected={status === id} className={`tab ${status === id ? "active" : ""}`} onClick={() => setStatus(id)}>
+                {label} <span className="count">{counts[id] || 0}</span>
+              </button>
+            ))}
+          </div>
+          <div className="bot-search library-search">
+            <SearchIcon />
+            <input type="search" placeholder="Search your website chatbots" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search website chatbots" />
+          </div>
+        </div>
       )}
 
-      {embed ? (
-        <EmbedCard
-          key={embed.id}
-          embed={embed}
-          me={me}
-          onChanged={(updated) => setEmbeds((list) => list.map((x) => (x.id === updated.id ? updated : x)))}
-          onRemoved={(id) => {
-            setEmbeds((list) => list.filter((x) => x.id !== id));
-            setSiteId("");
-          }}
-        />
+      {embeds.length === 0 && !adding ? (
+        <section className="empty-embeds">
+          <span className="dash-icon">
+            <CodeIcon />
+          </span>
+          <h2>Add a chatbot to your website</h2>
+          <ol className="steps">
+            <li>
+              <strong>1. Pick a chatbot</strong>
+              <span className="muted small">One you created for your website.</span>
+            </li>
+            <li>
+              <strong>2. Style it</strong>
+              <span className="muted small">Colours, font, launcher and greeting, with a live preview.</span>
+            </li>
+            <li>
+              <strong>3. Paste one line</strong>
+              <span className="muted small">Add the snippet to your website. Or use our API for your own UI.</span>
+            </li>
+          </ol>
+          <button className="btn primary" onClick={() => setAdding(true)}>
+            <PlusIcon size={16} /> Add to a website
+          </button>
+        </section>
       ) : (
-        site && (
-          <section className="embed-card embed-start">
-            <BotIcon site={site} size={40} />
-            <div>
-              <h2>{site.name} Chatbot isn't on a website yet</h2>
-              <p className="muted small">
-                It will only work on {site.domain} and its subdomains. {me.role === "admin" ? "As an admin, yours is approved straight away." : "An admin approves it before it answers visitors; you can set it up meanwhile."}
-              </p>
+        embeds.length > 0 && (
+          <>
+            {!shown.length && <p className="muted small">No website chatbots match. Try another status or search.</p>}
+            <div className="bot-grid embed-grid-list" ref={gridRef}>
+              {visible.map((e) => {
+                const pill = pillOf(e);
+                return (
+                  <div key={e.id} className="bot-card embed-tile" role="button" tabIndex={0} onClick={() => onOpen(e.id)} onKeyDown={(ev) => ev.key === "Enter" && onOpen(e.id)}>
+                    <BotIcon site={e.site} size={32} />
+                    <div className="bot-name">
+                      {e.site.name} Chatbot
+                      <div className="muted small tile-meta">
+                        {e.site.domain}
+                        {!e.restrict_to_domain && <span className="pill warn-pill">any website</span>}
+                      </div>
+                      <div className="muted small">
+                        {plural(e.chats_today, "chat")} · {money(e.spent_today_usd)} today
+                      </div>
+                      <InstallCheck embed={e} compact />
+                    </div>
+                    <span className={`status ${pill.cls}`}>{pill.label}</span>
+                  </div>
+                );
+              })}
             </div>
-            <button className="btn primary" disabled={busy} onClick={request}>
-              {me.role === "admin" ? "Add to website" : "Request"}
-            </button>
-          </section>
+            <Pager page={current} pages={pages} onPage={setPage} />
+          </>
         )
       )}
     </div>
+  );
+}
+
+/** route: {} for the list, or { embedId, tab, sub } for one chatbot's page. */
+export default function EmbedPage({ me, sites, route, onRoute }) {
+  const [embeds, setEmbeds] = useState(null);
+  const [error, setError] = useState("");
+  const load = useCallback(() => api.get("/api/embeds").then(setEmbeds).catch((e) => setError(e.message)), []);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (!embeds) return <div className="page wide embed-page">{error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>}</div>;
+
+  const taken = new Set(embeds.map((e) => e.site_id));
+  const choices = sites
+    .filter((s) => s.ready && !taken.has(s.id) && (s.created_by === me.id || me.role === "admin"))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const embed = route.embedId && embeds.find((e) => e.id === route.embedId);
+  const replace = (updated) => setEmbeds((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+
+  if (embed) {
+    return (
+      <EmbedBot
+        embed={embed}
+        me={me}
+        tab={route.tab}
+        sub={route.sub}
+        onRoute={onRoute}
+        onChanged={replace}
+        onRemoved={(id) => {
+          setEmbeds((list) => list.filter((x) => x.id !== id));
+          onRoute({});
+        }}
+      />
+    );
+  }
+  return (
+    <EmbedList
+      me={me}
+      embeds={embeds}
+      choices={choices}
+      onOpen={(id) => onRoute({ embedId: id, tab: "design" })}
+      onCreated={(created) => {
+        setEmbeds((list) => [created, ...list.filter((x) => x.id !== created.id)]);
+        onRoute({ embedId: created.id, tab: "design" });
+      }}
+    />
   );
 }

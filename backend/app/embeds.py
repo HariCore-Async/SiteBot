@@ -6,6 +6,7 @@ import secrets
 import threading
 import time
 from collections import deque
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
@@ -13,8 +14,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .models import Chat, Embed, Feedback, Site, UsageEvent, User
-from .usage import embed_spent_today
+from .models import Chat, Embed, Feedback, Message, Site, UsageEvent, User
+from .usage import embed_spent_today, start_of_today
 
 # Our widget and sitebot-client.js make their own random ids; server callers may pass their own user ids.
 VISITOR_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
@@ -176,8 +177,14 @@ def embed_out(db: Session, e: Embed, site: Site) -> dict:
         if e.secret_hash else None,
         "feedback": {"up": ratings.get("up", 0), "down": ratings.get("down", 0)},
         "spent_today_usd": round(embed_spent_today(db, e.id), 6), "spent_total_usd": round(float(total), 6),
-        "conversations": db.scalar(select(func.count(Chat.id)).where(Chat.embed_id == e.id)),
+        # Visitor counts leave out the owner's own test chats.
+        "conversations": db.scalar(select(func.count(Chat.id)).where(Chat.embed_id == e.id, Chat.is_test.is_(False))),
+        "chats_today": db.scalar(
+            select(func.count(Chat.id)).where(Chat.embed_id == e.id, Chat.is_test.is_(False), Chat.updated_at >= start_of_today())
+        ),
+        "last_seen": {"origin": e.last_seen_origin, "at": e.last_seen_at.isoformat()} if e.last_seen_at else None,
         "reviewed_by": e.reviewed_by, "reviewed_at": e.reviewed_at.isoformat() if e.reviewed_at else None,
+        "review_note": e.review_note,
         "created_at": e.created_at.isoformat(),
         "site": {"id": site.id, "name": site.name, "domain": site.domain, "favicon": site.favicon, "ready": site.generation > 0},
     }
@@ -185,3 +192,52 @@ def embed_out(db: Session, e: Embed, site: Site) -> dict:
 
 def admin_embed_out(db: Session, e: Embed, site: Site, owner: User) -> dict:
     return {**embed_out(db, e, site), "owner": {"id": owner.id, "name": owner.name, "email": owner.email}}
+
+
+def note_seen(db: Session, e: Embed, origin: str) -> None:
+    """Remembers that a website loaded this bot, for "Check installation". Written at most once a minute per website."""
+    origin = clean_origin(origin)
+    now = datetime.now(timezone.utc)
+    if not origin or (origin == e.last_seen_origin and e.last_seen_at and (now - e.last_seen_at).total_seconds() < 60):
+        return
+    e.last_seen_origin, e.last_seen_at = origin, now
+    db.commit()
+
+
+def normalize_question(text: str) -> str:
+    """Groups the same question asked slightly differently: case, punctuation and spacing don't count."""
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text.lower())).strip()
+
+
+def insights(db: Session, e: Embed, days: int = 30) -> dict:
+    """Chats per day, the most asked questions and the ones the bot couldn't answer, over the last `days` days."""
+    since = start_of_today() - timedelta(days=days - 1)
+    chats = db.scalars(select(Chat).where(Chat.embed_id == e.id, Chat.is_test.is_(False), Chat.updated_at >= since)).all()
+    per_day = {(since + timedelta(days=i)).date().isoformat(): 0 for i in range(days)}
+    for c in chats:
+        day = c.created_at.date().isoformat()
+        if day in per_day:
+            per_day[day] += 1
+    ids = [c.id for c in chats]
+    msgs = db.scalars(
+        select(Message).where(Message.chat_id.in_(ids), Message.created_at >= since).order_by(Message.chat_id, Message.id).limit(20000)
+    ).all() if ids else []
+    asked: dict[str, dict] = {}
+    missed: dict[str, dict] = {}
+    for prev, cur in zip(msgs, msgs[1:]):
+        if prev.role != "user" or cur.role != "assistant" or prev.chat_id != cur.chat_id:
+            continue
+        key = normalize_question(prev.content)
+        if not key:
+            continue
+        for bucket, hit in ((asked, True), (missed, not cur.grounded)):
+            if hit:
+                row = bucket.setdefault(key, {"question": prev.content.strip()[:200], "count": 0, "last_at": None})
+                row["count"] += 1
+                row["last_at"] = max(row["last_at"] or "", prev.created_at.isoformat())
+    top = lambda d, n: sorted(d.values(), key=lambda r: (-r["count"], r["question"]))[:n]
+    return {
+        "days": [{"date": d, "chats": n} for d, n in per_day.items()],
+        "top_questions": top(asked, 10),
+        "unanswered": top(missed, 20),
+    }

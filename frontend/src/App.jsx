@@ -15,6 +15,19 @@ import { applyInitialTheme } from "./ThemeToggle.jsx";
 
 applyInitialTheme();
 
+// The website-chatbot pages keep their place in the URL (#/website/<embed id>/<tab>/<sub-tab>),
+// so a reload, a shared link or the back button returns to the same chatbot and tab.
+function viewFromHash() {
+  const m = location.hash.match(/^#\/website(?:\/(\d+)(?:\/([a-z]+)(?:\/([a-z]+))?)?)?\/?$/);
+  if (!m) return null;
+  return { type: "embed", embedId: m[1] ? Number(m[1]) : undefined, tab: m[2], sub: m[3] };
+}
+
+function hashOf(view) {
+  if (view.type !== "embed") return "";
+  return "#/website" + [view.embedId, view.embedId && (view.tab || "design"), view.embedId && view.sub].filter(Boolean).map((p) => `/${p}`).join("");
+}
+
 export default function App() {
   const [config, setConfig] = useState(null);
   const [me, setMe] = useState(undefined); // undefined = loading, null = signed out
@@ -22,7 +35,7 @@ export default function App() {
   const [chats, setChats] = useState([]);
   const [usage, setUsage] = useState(null);
   // view: {type: "home"} | {type: "add"} | {type: "progress", siteId} | {type: "chat"} | {type: "admin"}
-  const [view, setView] = useState({ type: "home" });
+  const [view, setView] = useState(() => viewFromHash() || { type: "home" });
   // Open conversations, shown side by side (at most two). Closing one keeps its history on the server.
   const [panes, setPanes] = useState([]);
   const [activePane, setActivePane] = useState(0); // which pane shows on narrow screens
@@ -78,6 +91,20 @@ export default function App() {
     setView({ type: "home" });
     setPanes([]);
   };
+
+  useEffect(() => {
+    const hash = hashOf(view);
+    if (hash && location.hash !== hash) history.pushState(null, "", hash);
+    else if (!hash && location.hash.startsWith("#/website")) history.pushState(null, "", location.pathname + location.search);
+  }, [view]);
+  useEffect(() => {
+    const onPop = () => {
+      const v = viewFromHash();
+      setView((cur) => v || (cur.type === "embed" ? { type: "home" } : cur));
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   const go = (v) => {
     setView(v);
@@ -147,7 +174,14 @@ export default function App() {
   if (view.type === "support") {
     main = <Support />;
   } else if (view.type === "embed") {
-    main = <EmbedPage me={me} sites={sites} />;
+    main = (
+      <EmbedPage
+        me={me}
+        sites={sites}
+        route={{ embedId: view.embedId, tab: view.tab, sub: view.sub }}
+        onRoute={(r) => setView({ type: "embed", ...r })}
+      />
+    );
   } else if (view.type === "settings") {
     main = <Settings me={me} onUpdated={(u) => setMe((m) => ({ ...m, ...u }))} />;
   } else if (view.type === "admin" && me.role === "admin") {

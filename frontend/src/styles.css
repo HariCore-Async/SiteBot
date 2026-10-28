@@ -2819,3 +2819,464 @@ td select {
   color: var(--warn);
   margin-top: 4px;
 }
+/* ---------- Website chatbots: list and per-bot pages ---------- */
+.status.off {
+  background: var(--subtle);
+  color: var(--muted);
+}
+.embed-grid-list .embed-tile {
+  align-items: flex-start;
+}
+.tile-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.warn-pill {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.add-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.add-embed select {
+  height: 42px;
+}
+.add-embed p {
+  margin: 0;
+}
+.empty-embeds {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 28px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.empty-embeds h2 {
+  font-size: 19px;
+}
+.steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px 28px;
+  width: 100%;
+}
+.steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.back-link {
+  margin-bottom: 14px;
+}
+.bot-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.bot-head-meta {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+}
+.bot-head-meta h1 {
+  font-size: 24px;
+  font-weight: 650;
+}
+.head-switches {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.switch-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.banner {
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+.banner.pending {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.banner.rejected {
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+.embed-page .warn-note,
+.lock-note {
+  margin: 0 0 12px;
+}
+.info-note {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  background: var(--accent-soft);
+}
+.bot-tabs {
+  margin-bottom: 18px;
+}
+.sub-tabs {
+  margin: 0;
+}
+.tab-badge {
+  margin-left: 6px;
+  font-size: 11px;
+}
+.design-tab {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 28px;
+  align-items: start;
+}
+.design-tab .embed-preview {
+  position: sticky;
+  top: 12px;
+}
+.design-tab .embed-preview iframe {
+  height: 560px;
+}
+.install-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 1000px;
+}
+.install-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.install-panel > p {
+  margin: 0;
+}
+.install-panel code,
+.usage-tab code,
+.info-note code {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--subtle);
+  padding: 1px 5px;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+.embed-actions a.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.embed-actions {
+  align-items: center;
+}
+.usage-tab {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.usage-tab .way p {
+  margin: 0;
+}
+.usage-tab > .error {
+  grid-column: 1 / -1;
+}
+.usage-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.usage-tab .inline-form input {
+  width: 110px;
+}
+.key-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+}
+.key-row + .key-row {
+  border-top: 1px solid var(--border);
+}
+.danger-zone {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+.embed-page .embed-convos {
+  border-top: 0;
+  padding-top: 0;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+}
+.embed-page .convo-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-height: none;
+  overflow: visible;
+}
+.embed-page .convo-view {
+  max-height: calc(100vh - 260px);
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+@media (max-width: 1000px) {
+  .design-tab {
+    grid-template-columns: 1fr;
+  }
+  .design-tab .embed-preview {
+    position: static;
+  }
+  .embed-page .embed-convos {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .key-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .bot-tabs {
+    overflow-x: auto;
+  }
+}
+.status.pending {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.steps {
+  list-style: none;
+  padding-left: 0;
+}
+/* ---------- Round 2: tabs on phones, conversations tools, insights, install help ---------- */
+.bot-tabs,
+.sub-tabs,
+.status-filter {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.bot-tabs::-webkit-scrollbar,
+.sub-tabs::-webkit-scrollbar,
+.status-filter::-webkit-scrollbar {
+  display: none;
+}
+.bot-tabs .tab,
+.sub-tabs .tab,
+.status-filter .tab {
+  white-space: nowrap;
+  flex: none;
+}
+.convos-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.convos-tab > p {
+  margin: 0;
+}
+.convo-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px 18px;
+  flex-wrap: wrap;
+}
+.convo-toolbar .check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+}
+.convo-toolbar .count {
+  font-size: 12px;
+  color: var(--muted);
+}
+.date-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.date-field input {
+  height: 34px;
+  padding: 0 8px;
+}
+.export-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.export-btns a.btn {
+  text-decoration: none;
+}
+.convo-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.convo-title .pill {
+  flex: none;
+  font-size: 11px;
+}
+.convo-role .pill {
+  margin-left: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+.convo-msg.missed {
+  border-left: 3px solid var(--warn);
+  padding-left: 10px;
+}
+.insights-chart {
+  grid-column: 1 / -1;
+}
+.day-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.day-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+  padding-top: 6px;
+}
+.day-bar {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 3px;
+  background: var(--subtle);
+}
+.day-bar span {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.day-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.q-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.q-list li {
+  font-size: 13.5px;
+}
+.q-list li > span:first-child {
+  margin-right: 8px;
+}
+.install-check {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--subtle);
+}
+.install-check.ok {
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+.install-state {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.install-state.ok {
+  color: var(--ok);
+}
+.platform-guides {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.platform-guides p {
+  margin: 4px 0 0;
+}
+.guide {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+}
+.guide summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+.guide[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.guide ol {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  font-size: 13.5px;
+}
+.reject-form {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.reject-form input {
+  min-width: 220px;
+  height: 32px;
+}
+@media (max-width: 700px) {
+  .export-btns {
+    margin-left: 0;
+  }
+}
+.embed-page .convo-title {
+  flex-wrap: wrap;
+  white-space: normal;
+  overflow: visible;
+}
+.embed-page .convo-row {
+  min-width: 0;
+  overflow: hidden;
+}
+.embed-page .embed-convos > div:first-child {
+  min-width: 0;
+}

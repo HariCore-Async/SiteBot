@@ -49,8 +49,13 @@ def check_budget(db: Session, user: User) -> str | None:
     return None
 
 
+def start_of_today() -> datetime:
+    """Daily limits and counts reset at midnight UTC."""
+    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 def embed_spent_today(db: Session, embed_id: int) -> float:
-    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = start_of_today()
     return float(
         db.scalar(
             select(func.coalesce(func.sum(UsageEvent.cost_usd), 0)).where(

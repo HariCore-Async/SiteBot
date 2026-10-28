@@ -10,7 +10,11 @@ const params = new URLSearchParams(location.search);
 const KEY = decodeURIComponent(location.pathname.split("/").filter(Boolean)[1] || "");
 const ORIGIN = params.get("origin") || "";
 const PREVIEW = params.get("preview") === "1";
-const query = `origin=${encodeURIComponent(ORIGIN)}${PREVIEW ? "&preview=true" : ""}`;
+// "Test it" page: behaves like the real embed (bubble, open and close) but answers as a preview for the signed-in
+// owner, so it works before approval and on SiteBot's own sample page.
+const TEST = params.get("test") === "1";
+const AS_PREVIEW = PREVIEW || TEST;
+const query = `origin=${encodeURIComponent(ORIGIN)}${AS_PREVIEW ? "&preview=true" : ""}`;
 
 // Visitors are anonymous: a random id in this browser keeps their conversation across page loads.
 const STORE = `sitebot_visitor_${KEY}`;
@@ -39,6 +43,17 @@ function visitorId() {
 function tellParent(state) {
   if (window.parent === window || PREVIEW) return;
   window.parent.postMessage({ type: "sitebot:state", ...state }, ORIGIN || "*");
+}
+
+/** The saved config with the Design tab's unsaved changes on top (live preview). */
+function withDraft(cfg, d) {
+  return {
+    ...cfg,
+    color: d.color || cfg.color,
+    position: d.position || cfg.position,
+    greeting: d.greeting?.trim() || `Hi, welcome to ${cfg.name}! Ask me anything about ${cfg.name}.`,
+    style: { ...cfg.style, ...d.style },
+  };
 }
 
 // Text on the accent colour: dark on light accents, white on dark ones.
@@ -122,6 +137,21 @@ export default function Widget() {
   const launcherRef = useRef(null);
   const [dark, setDark] = useState(false);
   const [full, setFull] = useState(false);
+  // Live preview: the Design tab sends its unsaved changes here as you edit (preview only, same origin only).
+  const draftRef = useRef(null);
+
+  useEffect(() => {
+    if (!PREVIEW) return;
+    const onMessage = (e) => {
+      if (e.source !== window.parent || e.origin !== location.origin || e.data?.type !== "sitebot:preview-style") return;
+      draftRef.current = e.data.draft;
+      setCfg((c) => (c ? withDraft(c, e.data.draft) : c));
+    };
+    window.addEventListener("message", onMessage);
+    // Ask the Design tab for its current draft, in case it was sent before this page was listening.
+    if (window.parent !== window) window.parent.postMessage({ type: "sitebot:preview-ready" }, location.origin);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   useEffect(() => {
     const onMessage = (e) => {
@@ -134,10 +164,11 @@ export default function Widget() {
   useEffect(() => {
     api
       .get(`/api/public/${encodeURIComponent(KEY)}/config?${query}`)
-      .then(setCfg)
+      .then((c) => setCfg(draftRef.current ? withDraft(c, draftRef.current) : c))
       .catch((e) => {
         setUnavailable(e.message);
-        tellParent({ hidden: true });
+        // On the "Test it" page, say why instead of disappearing.
+        tellParent(TEST ? { open: true, position: "right" } : { hidden: true });
       });
   }, []);
 
@@ -190,7 +221,7 @@ export default function Widget() {
   }, [open]);
 
   if (!cfg) {
-    return PREVIEW && unavailable ? <div className="w-unavailable">{unavailable}</div> : null;
+    return AS_PREVIEW && unavailable ? <div className="w-unavailable">{unavailable}</div> : null;
   }
 
   const look = cfg.style || {};
@@ -223,7 +254,7 @@ export default function Widget() {
     try {
       await streamEvents(
         `/api/public/${encodeURIComponent(KEY)}/messages`,
-        { visitor_id: visitorId(), content, origin: ORIGIN, preview: PREVIEW },
+        { visitor_id: visitorId(), content, origin: ORIGIN, preview: AS_PREVIEW },
         (ev) => {
           if (ev.type === "token") patchLast((last) => ({ ...last, content: last.content + ev.text }));
           else if (ev.type === "replace") patchLast((last) => ({ ...last, content: ev.text }));
@@ -311,7 +342,7 @@ export default function Widget() {
                       {linkCitations(m.content, m.sources)}
                     </ReactMarkdown>
                     {!m.pending && <Sources sources={m.sources} />}
-                    {!PREVIEW && <Rate m={m} onRate={rate} />}
+                    {!AS_PREVIEW && <Rate m={m} onRate={rate} />}
                   </>
                 )
               ) : (

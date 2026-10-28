@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Test your chat widget</title>
+    <style>
+      body {
+        margin: 0;
+        font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        color: #1f2328;
+        background: #f6f5f1;
+      }
+      header {
+        padding: 18px 24px;
+        background: #ffffff;
+        border-bottom: 1px solid #e5e3dc;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .logo {
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .note {
+        font-size: 13px;
+        color: #6b6b6b;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 40px 24px 120px;
+      }
+      .block {
+        height: 14px;
+        border-radius: 7px;
+        background: #e8e6df;
+        margin: 12px 0;
+      }
+      .block.short {
+        width: 60%;
+      }
+      .hero {
+        height: 180px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #e3e0d6, #f0eee8);
+        margin: 24px 0;
+      }
+      .error {
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: #fdf0f0;
+        color: #b42318;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="logo">Your website</span>
+      <span class="note">A sample page from SiteBot. Your chat widget is in the corner. Only you can use it here.</span>
+    </header>
+    <main>
+      <h1>Test your chat widget</h1>
+      <p>This is how the chat bubble looks and works on a page. Open it and ask a question. Answers here count towards the bot's usage like real ones.</p>
+      <div class="hero"></div>
+      <div class="block"></div>
+      <div class="block"></div>
+      <div class="block short"></div>
+      <div id="error"></div>
+    </main>
+    <script>
+      (function () {
+        var key = new URLSearchParams(location.search).get("key") || "";
+        if (!/^pk_[A-Za-z0-9_-]+$/.test(key)) {
+          document.getElementById("error").innerHTML = '<p class="error">This link is missing the chatbot\'s code. Open it from SiteBot\'s Install tab.</p>';
+          return;
+        }
+        var s = document.createElement("script");
+        s.src = "/embed.js";
+        s.setAttribute("data-bot", key);
+        s.setAttribute("data-test", "");
+        document.body.appendChild(s);
+      })();
+    </script>
+  </body>
+</html>

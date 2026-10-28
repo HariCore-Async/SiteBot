@@ -12,6 +12,8 @@
   var base = new URL(script.src).origin;
   var frame = document.createElement("iframe");
   frame.src = base + "/widget/" + encodeURIComponent(key) + "?origin=" + encodeURIComponent(location.origin);
+  // data-test: SiteBot's own "Test it" page, which works before approval for the signed-in owner.
+  if (script.hasAttribute("data-test")) frame.src += "&test=1";
   frame.title = "Chat with us";
   frame.setAttribute("allowtransparency", "true");
   var side = "right";
