@@ -2,6 +2,7 @@ import { useConfirm } from "./Confirm.jsx";
 import { useCallback, useEffect, useState } from "react";
 import { api, money, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
+import { Tabs } from "./Tabs.jsx";
 
 function Users({ me, onUsageChange }) {
   const [users, setUsers] = useState([]);
@@ -500,13 +501,7 @@ export default function Admin({ me, sites, refreshSites, onUsageChange }) {
   return (
     <div className="page admin">
       <h1>Admin console</h1>
-      <div className="tabs" role="tablist">
-        {TABS.map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
-            {t}
-          </button>
-        ))}
-      </div>
+      <Tabs label="Admin sections" value={tab} onChange={setTab} tabs={TABS.map((t) => [t, t])} />
       {tab === "Users" && <Users me={me} onUsageChange={onUsageChange} />}
       {tab === "Access" && <Access />}
       {tab === "Bots" && <Bots sites={sites} refreshSites={refreshSites} />}

@@ -58,6 +58,16 @@ cd backend && ../.venv/Scripts/uvicorn app.main:app --reload --port 8000
 cd frontend && npm install && npm run dev  # http://localhost:5173 (proxies /api to :8000)
 ```
 
+### Tests
+
+```bash
+cd backend && ../.venv/Scripts/pip install pytest && ../.venv/Scripts/python -m pytest tests -q
+```
+
+The tests use a separate database (`sitebot_test` on the docker compose Postgres, created automatically; override with
+`TEST_DATABASE_URL`) and fake the AI and embedding calls, so they need no API keys and download nothing. GitHub Actions
+runs them, plus a frontend build, on every pull request (`.github/workflows/ci.yml`).
+
 
 ## Deploy to Railway
 
@@ -97,6 +107,8 @@ Keep one replica: indexing jobs run inside the web process.
 | `ENABLE_PLAYWRIGHT` | `true` | JS rendering fallback |
 | `EMBED_DAILY_CAP_USD` | `0.5` | default daily spend limit for each website embed |
 | `EMBED_DEV_ORIGINS` | *(empty)* | local testing only: extra origins every embed may run on, comma-separated |
+| `APP_URL` | *(empty)* | public address, for links in notification emails |
+| `SENTRY_DSN` / `SENTRY_BROWSER_DSN` | *(empty)* | error monitoring for the server / browsers; off when empty |
 
 ## Limits
 

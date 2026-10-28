@@ -3,6 +3,7 @@ import BotInfo from "./BotInfo.jsx";
 import { useConfirm } from "./Confirm.jsx";
 import { BotIcon } from "./Sidebar.jsx";
 import { SearchIcon, TrashIcon } from "./Icons.jsx";
+import { Tabs } from "./Tabs.jsx";
 
 const STATUS_LABEL = { queued: "Queued", crawling: "Reading", embedding: "Learning", failed: "Failed" };
 
@@ -123,14 +124,15 @@ export default function BotsPage({ mine, library, onOpen, onRemove }) {
         </div>
       </div>
       <div className="bots-toolbar">
-        <div className="tabs" role="tablist">
-          <button role="tab" aria-selected={tab === "mine"} className={`tab ${tab === "mine" ? "active" : ""}`} onClick={() => setTab("mine")}>
-            Your chatbots <span className="count">{mine.length}</span>
-          </button>
-          <button role="tab" aria-selected={tab === "library"} className={`tab ${tab === "library" ? "active" : ""}`} onClick={() => setTab("library")}>
-            Library <span className="count">{library.length}</span>
-          </button>
-        </div>
+        <Tabs
+          label="Which chatbots"
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            ["mine", <>Your chatbots <span className="count">{mine.length}</span></>],
+            ["library", <>Library <span className="count">{library.length}</span></>],
+          ]}
+        />
         <div className="bot-search library-search">
           <SearchIcon />
           <input

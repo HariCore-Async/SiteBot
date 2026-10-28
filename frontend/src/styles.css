@@ -3280,3 +3280,15 @@ td select {
 .embed-page .embed-convos > div:first-child {
   min-width: 0;
 }
+/* ---------- Keyboard focus ---------- */
+.tab:focus-visible,
+.switch:focus-visible,
+.pager-btn:focus-visible,
+.bot-card:focus-visible,
+.btn:focus-visible,
+.link-btn:focus-visible,
+.side-link:focus-visible,
+.icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

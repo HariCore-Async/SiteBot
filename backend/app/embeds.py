@@ -173,8 +173,11 @@ def embed_out(db: Session, e: Embed, site: Site) -> dict:
         "id": e.id, "key": e.key, "site_id": e.site_id, "status": e.status, "enabled": e.enabled,
         "color": e.color, "greeting": e.greeting, "position": e.position, "daily_cap_usd": e.daily_cap_usd,
         "style": style_of(e), "restrict_to_domain": e.restrict_to_domain,
-        "server_key": {"hint": e.secret_hint, "created_at": e.secret_created_at.isoformat() if e.secret_created_at else None}
-        if e.secret_hash else None,
+        "server_key": {
+            "hint": e.secret_hint,
+            "created_at": e.secret_created_at.isoformat() if e.secret_created_at else None,
+            "last_used_at": e.secret_last_used_at.isoformat() if e.secret_last_used_at else None,
+        } if e.secret_hash else None,
         "feedback": {"up": ratings.get("up", 0), "down": ratings.get("down", 0)},
         "spent_today_usd": round(embed_spent_today(db, e.id), 6), "spent_total_usd": round(float(total), 6),
         # Visitor counts leave out the owner's own test chats.

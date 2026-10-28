@@ -6,6 +6,7 @@ import { api, money, plural, timeAgo } from "./api.js";
 import { BotIcon } from "./Sidebar.jsx";
 import { Pager, useFitPageSize } from "./BotsPage.jsx";
 import { linkCitations, mdComponents, Sources } from "./answer.jsx";
+import { Tabs } from "./Tabs.jsx";
 import { ArrowRightIcon, CodeIcon, PlusIcon, SearchIcon } from "./Icons.jsx";
 
 // "Add a chatbot to your website": a list of your website chatbots, and a page per chatbot with tabs
@@ -66,18 +67,6 @@ function CodeBlock({ code }) {
   );
 }
 
-function Tabs({ tabs, value, onChange, className = "" }) {
-  return (
-    <div className={`tabs ${className}`} role="tablist">
-      {tabs.map(([id, label, badge]) => (
-        <button key={id} role="tab" aria-selected={value === id} className={`tab ${value === id ? "active" : ""}`} onClick={() => onChange(id)}>
-          {label}
-          {badge && <span className="pill accent tab-badge">{badge}</span>}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function examples(embed, base) {
   const sk = "$SITEBOT_SERVER_KEY";
@@ -395,7 +384,8 @@ function ServerKey({ embed, onChanged }) {
         </div>
       ) : embed.server_key ? (
         <p className="small">
-          Server key <code>sk_…{embed.server_key.hint}</code>, created {timeAgo(embed.server_key.created_at)}.
+          Server key <code>sk_…{embed.server_key.hint}</code>, created {timeAgo(embed.server_key.created_at)}.{" "}
+          {embed.server_key.last_used_at ? `Last used ${timeAgo(embed.server_key.last_used_at)}.` : "Not used yet."}
         </p>
       ) : (
         <p className="small muted">No server key yet.</p>
@@ -499,7 +489,7 @@ function InstallTab({ embed, sub, onSub, onChanged }) {
           You can install it now: it starts answering visitors as soon as an admin approves it. Until then the widget stays hidden on your website.
         </p>
       )}
-      <Tabs tabs={INSTALL_TABS} value={tab} onChange={onSub} className="sub-tabs" />
+      <Tabs tabs={INSTALL_TABS} value={tab} onChange={onSub} className="sub-tabs" label="Ways to install" />
 
       {tab === "snippet" && (
         <div className="install-panel">
@@ -828,7 +818,10 @@ function UsageTab({ embed, me, onChanged, onRemoved, onInstall }) {
             <div className="small">
               Server key {embed.server_key ? <code>sk_…{embed.server_key.hint}</code> : <span className="muted">not created</span>}
             </div>
-            <div className="muted small">For the server API.</div>
+            <div className="muted small">
+              For the server API.
+              {embed.server_key && (embed.server_key.last_used_at ? ` Last used ${timeAgo(embed.server_key.last_used_at)}.` : " Not used yet.")}
+            </div>
           </div>
           <button className="btn ghost small" onClick={onInstall}>
             Manage
@@ -992,7 +985,7 @@ function EmbedBot({ embed, me, tab, sub, onRoute, onChanged, onRemoved }) {
       {me.role !== "admin" && <p className="muted small lock-note">Only an admin can change which websites may use this chatbot.</p>}
       {error && <p className="error">{error}</p>}
 
-      <Tabs tabs={BOT_TABS} value={current} onChange={(t) => t !== current && go({ embedId: embed.id, tab: t })} className="bot-tabs" />
+      <Tabs tabs={BOT_TABS} value={current} onChange={(t) => t !== current && go({ embedId: embed.id, tab: t })} className="bot-tabs" label="Chatbot settings" />
       {current === "design" && <DesignTab embed={embed} onChanged={onChanged} onDirty={setDirty} />}
       {current === "install" && (
         <InstallTab embed={embed} sub={sub} onSub={(s) => onRoute({ embedId: embed.id, tab: "install", sub: s })} onChanged={onChanged} />

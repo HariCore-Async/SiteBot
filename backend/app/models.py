@@ -181,6 +181,7 @@ class Embed(Base):
     secret_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     secret_hint: Mapped[str] = mapped_column(String(12), default="")
     secret_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    secret_last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reviewed_by: Mapped[str] = mapped_column(String(320), default="")
     # Shown to the owner when an admin rejects the request.
     review_note: Mapped[str] = mapped_column(Text, default="")

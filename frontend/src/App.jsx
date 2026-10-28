@@ -23,6 +23,16 @@ function viewFromHash() {
   return { type: "embed", embedId: m[1] ? Number(m[1]) : undefined, tab: m[2], sub: m[3] };
 }
 
+/** Sentry in the browser, only when the server has a browser DSN set (SENTRY_BROWSER_DSN). Loaded from Sentry's CDN. */
+function startErrorMonitoring(sentry) {
+  if (!sentry?.dsn || window.Sentry) return;
+  const s = document.createElement("script");
+  s.src = "https://browser.sentry-cdn.com/8.47.0/bundle.min.js";
+  s.crossOrigin = "anonymous";
+  s.onload = () => window.Sentry?.init({ dsn: sentry.dsn, environment: sentry.environment, sendDefaultPii: false });
+  document.head.appendChild(s);
+}
+
 function hashOf(view) {
   if (view.type !== "embed") return "";
   return "#/website" + [view.embedId, view.embedId && (view.tab || "design"), view.embedId && view.sub].filter(Boolean).map((p) => `/${p}`).join("");
@@ -43,7 +53,13 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    api.get("/api/config").then(setConfig).catch(() => setConfig({ google_client_id: "" }));
+    api
+      .get("/api/config")
+      .then((c) => {
+        setConfig(c);
+        startErrorMonitoring(c.sentry);
+      })
+      .catch(() => setConfig({ google_client_id: "" }));
     api
       .get("/api/me")
       .then((m) => {
