@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Used for query rewriting and answer verification.
     openrouter_fast_model: str = "anthropic/claude-haiku-5.5"
     verify_answers: bool = True
+    # Encrypts AI provider API keys saved in the Admin console. Any long random string. Without it, a key derived
+    # from SECRET_KEY is used (so changing SECRET_KEY would make saved provider keys unreadable).
+    provider_keys_secret: str = ""
 
     global_budget_usd: float = 10.0
     default_user_limit_usd: float = 1.0

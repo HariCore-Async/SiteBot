@@ -53,7 +53,7 @@ def _generate(db: Session, site: Site, user: User) -> list[str]:
     if not sample:
         return []
     text, usage = llm.complete(
-        settings.openrouter_fast_model,
+        "fast",
         [
             {
                 "role": "system",
@@ -65,8 +65,9 @@ def _generate(db: Session, site: Site, user: User) -> list[str]:
             {"role": "user", "content": f"TEXT:\n{sample}"},
         ],
         max_tokens=300,
+        site_id=site.id,
     )
-    record_usage(db, user.id, "suggest", settings.openrouter_fast_model, usage)
+    record_usage(db, user.id, "suggest", usage.get("model", ""), usage)
     if not text.strip():
         log.warning("Suggestion model returned no text for site %s", site.id)
 

@@ -3292,3 +3292,66 @@ td select {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* ---------- Admin console: AI providers ---------- */
+.ai-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 1100px;
+}
+.ai-providers .way p {
+  margin: 0;
+}
+.provider-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.provider-head > div:first-child {
+  flex: 1;
+  min-width: 200px;
+}
+.add-model {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.add-model input {
+  height: 34px;
+  min-width: 0;
+  flex: 1 1 140px;
+}
+.ai-providers .inline-form input {
+  height: 34px;
+  flex: 1;
+  min-width: 200px;
+}
+.fallbacks {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fallbacks li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fallbacks li > span {
+  flex: 1;
+}
+.test-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ok-text {
+  color: var(--ok);
+}
+.error-text {
+  color: var(--danger);
+}

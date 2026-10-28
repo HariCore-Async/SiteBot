@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -16,7 +17,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import accounts, auth
+from . import accounts, auth, llm, providers
 from .auth import admin_user, current_user, email_domain, is_org_domain, login_user
 from .chat import answer_stream
 from .config import settings
@@ -28,10 +29,11 @@ from .embeds import (
     insights, new_key, new_secret, note_seen, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
 from .ingest import is_running, request_stop, start_ingestion
-from .models import AccessGrant, Chat, Embed, Feedback, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
+from .models import AccessGrant, AIModel, AIProvider, Chat, Embed, Feedback, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
+from .providers import encrypt_key, provider_out
 from .suggest import get_suggestions
 from .schemas import (
-    AddSite, AdminSettingsIn, Ask, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, AdminSettingsIn, AIDefaults, AITest, Ask, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
     ServerAsk, ServerFeedback, VerifyCode, VisitorAsk, VisitorFeedback, site_out, user_out,
 )
 from .xlsx import to_xlsx
@@ -1031,6 +1033,145 @@ def admin_review_embed(embed_id: int, body: EmbedReview, me: User = Depends(admi
             text += "\n\nYou can change things and ask again from the chatbot's page."
         accounts.notify([owner.email], subject, text + app_link(f"#/website/{e.id}"))
     return admin_embed_out(db, e, site, owner)
+
+
+# ---------- Admin: AI providers and models ----------
+
+def ai_overview(db: Session) -> dict:
+    providers_list = db.scalars(select(AIProvider).order_by(AIProvider.created_at)).all()
+    models = db.scalars(select(AIModel).order_by(AIModel.id)).all()
+    return {
+        "providers": [provider_out(p, [m for m in models if m.provider_id == p.id]) for p in providers_list],
+        "env": {"available": providers.env_available(), "models": providers.env_models()},
+        "defaults": providers.defaults(db),
+        "kinds": [{"kind": k, **v} for k, v in providers.KINDS.items()],
+    }
+
+
+def check_base_url(kind: str, base_url: str) -> str:
+    base_url = base_url.strip().rstrip("/")
+    if base_url and not re.match(r"^https?://[^\s]+$", base_url):
+        raise HTTPException(400, "The base URL must start with http:// or https://.")
+    if kind in ("azure", "openai_compatible") and not base_url:
+        raise HTTPException(400, "This kind of provider needs its base URL.")
+    return base_url
+
+
+@app.get("/api/admin/ai")
+def admin_ai(_: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return ai_overview(db)
+
+
+@app.post("/api/admin/ai/providers")
+def admin_add_provider(body: ProviderIn, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    p = AIProvider(name=body.name.strip(), kind=body.kind, base_url=check_base_url(body.kind, body.base_url),
+                   api_key_enc=encrypt_key(body.api_key.strip()), api_version=body.api_version.strip(), enabled=True)
+    db.add(p)
+    db.commit()
+    return ai_overview(db)
+
+
+@app.patch("/api/admin/ai/providers/{provider_id}")
+def admin_update_provider(provider_id: int, body: ProviderUpdate, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    p = db.get(AIProvider, provider_id)
+    if not p:
+        raise HTTPException(404, "Provider not found")
+    if body.name is not None:
+        p.name = body.name.strip()
+    if body.base_url is not None:
+        p.base_url = check_base_url(p.kind, body.base_url)
+    if body.api_key is not None:
+        p.api_key_enc = encrypt_key(body.api_key.strip())
+    if body.api_version is not None:
+        p.api_version = body.api_version.strip()
+    if body.enabled is not None:
+        p.enabled = body.enabled
+    db.commit()
+    return ai_overview(db)
+
+
+@app.delete("/api/admin/ai/providers/{provider_id}")
+def admin_delete_provider(provider_id: int, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    p = db.get(AIProvider, provider_id)
+    if not p:
+        raise HTTPException(404, "Provider not found")
+    refs = [f"m:{m.id}" for m in db.scalars(select(AIModel).where(AIModel.provider_id == p.id))]
+    db.delete(p)
+    db.commit()
+    for ref in refs:
+        providers.clear_references(db, ref)
+    return ai_overview(db)
+
+
+@app.post("/api/admin/ai/providers/{provider_id}/models")
+def admin_add_model(provider_id: int, body: ModelIn, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    if not db.get(AIProvider, provider_id):
+        raise HTTPException(404, "Provider not found")
+    db.add(AIModel(provider_id=provider_id, model=body.model.strip(), label=body.label.strip(),
+                   input_per_m=body.input_per_m, output_per_m=body.output_per_m, enabled=True))
+    db.commit()
+    return ai_overview(db)
+
+
+@app.patch("/api/admin/ai/models/{model_id}")
+def admin_update_model(model_id: int, body: ModelUpdate, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    m = db.get(AIModel, model_id)
+    if not m:
+        raise HTTPException(404, "Model not found")
+    for field in ("label", "input_per_m", "output_per_m", "enabled"):
+        value = getattr(body, field)
+        if value is not None:
+            setattr(m, field, value.strip() if isinstance(value, str) else value)
+    db.commit()
+    return ai_overview(db)
+
+
+@app.delete("/api/admin/ai/models/{model_id}")
+def admin_delete_model(model_id: int, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    m = db.get(AIModel, model_id)
+    if not m:
+        raise HTTPException(404, "Model not found")
+    db.delete(m)
+    db.commit()
+    providers.clear_references(db, f"m:{model_id}")
+    return ai_overview(db)
+
+
+@app.put("/api/admin/ai/defaults")
+def admin_ai_defaults(body: AIDefaults, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    for ref in [body.answer, body.fast, *body.fallbacks]:
+        if not providers.target_for(db, ref):
+            raise HTTPException(400, f"{ref} isn't usable: it's missing, turned off, or its provider has no API key.")
+    providers.set_defaults(db, body.answer, body.fast, body.fallbacks)
+    return ai_overview(db)
+
+
+@app.post("/api/admin/ai/test")
+def admin_ai_test(body: AITest, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    """Sends a tiny prompt to one model (no fallback) and reports whether it answered."""
+    t = providers.target_for(db, body.ref)
+    if not t:
+        return {"ok": False, "error": "This model isn't usable: it's turned off, or its provider has no API key."}
+    started = time.monotonic()
+    try:
+        text, usage = llm.complete_with(t, [{"role": "user", "content": "Reply with the single word OK."}], max_tokens=10)
+    except llm.LLMError as e:
+        return {"ok": False, "error": str(e)[:500]}
+    return {"ok": True, "reply": text.strip()[:100], "ms": round((time.monotonic() - started) * 1000), "cost": usage["cost"]}
+
+
+@app.patch("/api/admin/sites/{site_id}/models")
+def admin_site_models(site_id: int, body: SiteModels, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    site = db.get(Site, site_id)
+    if not site:
+        raise HTTPException(404, "Bot not found")
+    for field in ("answer_model", "fast_model"):
+        ref = getattr(body, field)
+        if ref and not providers.target_for(db, ref):
+            raise HTTPException(400, f"{ref} isn't usable: it's missing, turned off, or its provider has no API key.")
+        setattr(site, field, ref or None)
+    db.commit()
+    return site_out(site)
 
 
 @app.post("/api/admin/sites/{site_id}/reindex")

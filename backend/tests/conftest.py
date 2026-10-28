@@ -59,10 +59,10 @@ class FakeAI:
         self.answer = "We sell running shoes and trail shoes [1]."
         self.calls = []
 
-    def complete(self, model, messages, max_tokens=300):
+    def complete(self, purpose, messages, max_tokens=300, site_id=None):
         system = messages[0]["content"]
-        self.calls.append(("complete", model))
-        usage = {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001}
+        self.calls.append(("complete", purpose, site_id))
+        usage = {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.0001, "model": "fake-fast", "provider": "Fake"}
         if "check an assistant's answer" in system:
             return "NONE", usage
         if "suggested questions" in system:
@@ -71,11 +71,11 @@ class FakeAI:
             return messages[-1]["content"].split("LATEST MESSAGE:")[-1].strip(), usage
         return "ok", usage
 
-    def stream(self, model, messages, max_tokens=900):
-        self.calls.append(("stream", model))
+    def stream(self, purpose, messages, max_tokens=900, site_id=None):
+        self.calls.append(("stream", purpose, site_id))
         for word in self.answer.split(" "):
             yield "token", word + " "
-        yield "usage", {"prompt_tokens": 50, "completion_tokens": 20, "cost": 0.002}
+        yield "usage", {"prompt_tokens": 50, "completion_tokens": 20, "cost": 0.002, "model": "fake-answer", "provider": "Fake"}
 
 
 AI = FakeAI()
@@ -159,6 +159,9 @@ class As:
 
     def patch(self, path, **kw):
         return self._call("PATCH", path, **kw)
+
+    def put(self, path, **kw):
+        return self._call("PUT", path, **kw)
 
     def delete(self, path, **kw):
         return self._call("DELETE", path, **kw)

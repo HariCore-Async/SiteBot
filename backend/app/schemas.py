@@ -151,6 +151,55 @@ class ServerFeedback(BaseModel):
     comment: str = Field(default="", max_length=1000)
 
 
+MODEL_REF = r"^(env:answer|env:fast|m:\d+)$"
+
+
+class ProviderIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    kind: str = Field(pattern="^(openrouter|openai|anthropic|gemini|azure|huggingface|openai_compatible)$")
+    base_url: str = Field(default="", max_length=500)
+    api_key: str = Field(default="", max_length=2000)
+    api_version: str = Field(default="", max_length=40)
+
+
+class ProviderUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=2000)  # replaces the saved key; "" removes it
+    api_version: str | None = Field(default=None, max_length=40)
+    enabled: bool | None = None
+
+
+class ModelIn(BaseModel):
+    model: str = Field(min_length=1, max_length=200)
+    label: str = Field(default="", max_length=200)
+    input_per_m: float = Field(default=0, ge=0, le=10000)
+    output_per_m: float = Field(default=0, ge=0, le=10000)
+
+
+class ModelUpdate(BaseModel):
+    label: str | None = Field(default=None, max_length=200)
+    input_per_m: float | None = Field(default=None, ge=0, le=10000)
+    output_per_m: float | None = Field(default=None, ge=0, le=10000)
+    enabled: bool | None = None
+
+
+class AIDefaults(BaseModel):
+    answer: str = Field(pattern=MODEL_REF)
+    fast: str = Field(pattern=MODEL_REF)
+    fallbacks: list[str] = Field(default_factory=list, max_length=10)
+
+
+class AITest(BaseModel):
+    ref: str = Field(pattern=MODEL_REF)
+
+
+class SiteModels(BaseModel):
+    # None (or "") means "use the default".
+    answer_model: str | None = Field(default=None, pattern=r"^(|env:answer|env:fast|m:\d+)$")
+    fast_model: str | None = Field(default=None, pattern=r"^(|env:answer|env:fast|m:\d+)$")
+
+
 def site_out(s: Site) -> dict:
     return {
         "id": s.id,
@@ -176,6 +225,8 @@ def site_out(s: Site) -> dict:
         "chunks_total": s.chunks_total,
         "chunks_done": s.chunks_done,
         "indexed_at": s.indexed_at.isoformat() if s.indexed_at else None,
+        "answer_model": s.answer_model,
+        "fast_model": s.fast_model,
         "created_at": s.created_at.isoformat(),
     }
 
