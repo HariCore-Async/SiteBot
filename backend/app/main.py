@@ -39,6 +39,15 @@ from .usage import global_budget, set_global_budget, usage_summary
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+
+        # Errors only, and no visitor data: no request bodies, cookies or IPs.
+        sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.sentry_environment, send_default_pii=False, traces_sample_rate=0)
+    except ImportError:
+        logging.getLogger(__name__).warning("SENTRY_DSN is set but sentry-sdk isn't installed; error monitoring is off.")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -78,6 +87,7 @@ def public_config(db: Session = Depends(get_db)):
         "google_client_id": settings.google_client_id,
         "require_approval": auth.approval_required(db),
         "email_enabled": accounts.email_enabled(),
+        "sentry": {"dsn": settings.sentry_browser_dsn, "environment": settings.sentry_environment} if settings.sentry_browser_dsn else None,
     }
 
 
@@ -89,7 +99,11 @@ def google_login(body: GoogleLogin, response: Response, db: Session = Depends(ge
     if not settings.google_client_id:
         raise HTTPException(500, "Google sign-in is not configured.")
     try:
-        info = id_token.verify_oauth2_token(body.credential, google_requests.Request(), settings.google_client_id)
+        # Allow a few seconds of clock difference: a PC whose clock runs slightly behind Google's otherwise rejects
+        # every fresh token as "used too early".
+        info = id_token.verify_oauth2_token(
+            body.credential, google_requests.Request(), settings.google_client_id, clock_skew_in_seconds=10
+        )
     except ValueError:
         raise HTTPException(401, "Google sign-in failed. Please try again.")
     if not info.get("email_verified"):
@@ -543,7 +557,7 @@ def make_server_key(embed_id: int, user: User = Depends(current_user), db: Sessi
     """Creates (or replaces) the secret key for the headless API. The key is returned this once and never again."""
     e = own_embed(db, embed_id, user)
     secret = new_secret()
-    e.secret_hash, e.secret_hint, e.secret_created_at = hash_secret(secret), secret[-4:], utcnow()
+    e.secret_hash, e.secret_hint, e.secret_created_at, e.secret_last_used_at = hash_secret(secret), secret[-4:], utcnow(), None
     db.commit()
     return {**embed_out(db, e, db.get(Site, e.site_id)), "secret": secret}
 
@@ -551,7 +565,7 @@ def make_server_key(embed_id: int, user: User = Depends(current_user), db: Sessi
 @app.delete("/api/embeds/{embed_id}/server-key")
 def revoke_server_key(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     e = own_embed(db, embed_id, user)
-    e.secret_hash, e.secret_hint, e.secret_created_at = None, "", None
+    e.secret_hash, e.secret_hint, e.secret_created_at, e.secret_last_used_at = None, "", None, None
     db.commit()
     return embed_out(db, e, db.get(Site, e.site_id))
 
@@ -801,6 +815,11 @@ def widget_feedback(key: str, body: VisitorFeedback, request: Request, db: Sessi
 def server_embed(request: Request, db: Session) -> tuple[Embed, Site, User]:
     e = server_key_embed(db, request)
     site, owner = db.get(Site, e.site_id), db.get(User, e.owner_id)
+    # "Last used", so owners can tell whether a key is in use before revoking it. Written at most once a minute.
+    now = utcnow()
+    if not e.secret_last_used_at or (now - e.secret_last_used_at).total_seconds() > 60:
+        e.secret_last_used_at = now
+        db.commit()
     ready_or_unavailable(e, site)
     if not server_limiter.allow(str(e.id)):
         raise HTTPException(429, "Too many requests for this chatbot. Please slow down.")
@@ -1057,9 +1076,10 @@ def widget_page(key: str, db: Session = Depends(get_db)):
     e = db.scalar(select(Embed).where(Embed.key == key))
     site = db.get(Site, e.site_id) if e else None
     page = STATIC_DIR / "widget.html"
+    headers = {"Content-Security-Policy": widget_csp(e, site), "Cache-Control": "no-cache"}
     if not page.exists():
-        return Response("Frontend not built. Run `npm run build` in frontend/.", media_type="text/plain")
-    return FileResponse(page, headers={"Content-Security-Policy": widget_csp(e, site), "Cache-Control": "no-cache"})
+        return Response("Frontend not built. Run `npm run build` in frontend/.", media_type="text/plain", headers=headers)
+    return FileResponse(page, headers=headers)
 
 
 @app.get("/{path:path}", include_in_schema=False)

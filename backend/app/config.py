@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Public address of this app (e.g. https://sitebot.example.com), used for links in notification emails.
     app_url: str = ""
 
+    # Error monitoring with Sentry. Off unless a DSN is set; the browser DSN is public by design.
+    sentry_dsn: str = ""
+    sentry_browser_dsn: str = ""
+    sentry_environment: str = "production"
+
     # Whole sites are read; this is only a safety ceiling so a huge site can't run forever.
     max_pages: int = 5000
     max_depth: int = 8

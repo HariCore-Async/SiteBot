@@ -77,6 +77,7 @@ def init_db() -> None:
         conn.execute(text("UPDATE chats SET is_test = true WHERE origin = 'SiteBot preview' AND NOT is_test"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS review_note TEXT NOT NULL DEFAULT ''"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_last_used_at TIMESTAMPTZ"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS last_seen_origin VARCHAR(300) NOT NULL DEFAULT ''"))
     with engine.begin() as conn:
         # A crawl that was running when the server stopped can never finish; mark it so it can be retried.
