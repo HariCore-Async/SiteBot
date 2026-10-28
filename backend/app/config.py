@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Public address of this app (e.g. https://sitebot.example.com), used for links in notification emails.
     app_url: str = ""
 
+    # Shared rate limits across several copies of the app (optional), e.g. redis://default:pass@host:6379/0.
+    redis_url: str = ""
+
     # Background jobs (scheduled re-indexing, weekly report emails).
     scheduler_enabled: bool = True
     scheduler_interval_seconds: int = 600
@@ -55,6 +58,8 @@ class Settings(BaseSettings):
     # Above this many pages, the user is warned (with a time estimate) before indexing starts.
     large_site_pages: int = 300
     crawl_concurrency: int = 8
+    # Websites indexed at the same time; the rest wait in line. Raise it only on a server with memory to spare.
+    index_concurrency: int = 1
     enable_playwright: bool = True
 
     embedding_model: str = "BAAI/bge-small-en-v1.5"

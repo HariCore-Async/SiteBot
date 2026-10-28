@@ -57,6 +57,9 @@ Home → **Add a chatbot to your website** (or the sidebar's **Add to your websi
   insights) or **editors** (also design, knowledge, leads, schedule). Keys, the team and removal stay with the owner.
 - **Widget extras:** an optional pop-up greeting after a few seconds (once per visit), and suggested questions ordered by
   the page the visitor is on (embed.js sends the page address without its query string).
+- **Domain verification:** the owner adds a meta tag to the home page or a DNS TXT record (Usage & settings); once it
+  checks out, a waiting request goes live without an admin. A request an admin already reviewed keeps the admin's
+  decision.
 - **Emails:** admins get an email for each new request, and owners when theirs is approved or not (with the admin's reason). Uses the same email settings as sign-up codes; without them, nothing is sent and it's only logged. Set `APP_URL` for links in these emails.
 - **Your own UI:** instead of the widget, use `sitebot-client.js` in the browser (public key, same domain lock) or the server API at `/api/v1` with a secret `sk_` key from the Embed page. See [docs/API.md](docs/API.md).
 - **Styling:** theme (light, dark or auto), font, corner rounding, header title, launcher icon and label, and custom CSS, which applies only inside the widget and has imports and `url()` removed.
@@ -140,6 +143,10 @@ Keep one replica: indexing jobs run inside the web process.
 | `EMBED_DEV_ORIGINS` | *(empty)* | local testing only: extra origins every embed may run on, comma-separated |
 | `APP_URL` | *(empty)* | public address, for links in notification emails |
 | `SCHEDULER_ENABLED` / `SCHEDULER_INTERVAL_SECONDS` | `true` / `600` | background jobs: scheduled re-index, weekly reports |
+| `INDEX_CONCURRENCY` | `1` | websites indexed at once; the rest wait in line (and resume after a restart) |
+| `REDIS_URL` | *(empty)* | shared rate limits across several app copies; in-memory when empty |
+
+Backups: see [docs/BACKUPS.md](docs/BACKUPS.md).
 | `SENTRY_DSN` / `SENTRY_BROWSER_DSN` | *(empty)* | error monitoring for the server / browsers; off when empty |
 
 ## Limits

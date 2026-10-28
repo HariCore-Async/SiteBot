@@ -109,6 +109,8 @@ class Site(Base):
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Suggested starter questions, generated from the indexed pages on first request. None = not generated yet.
     suggestions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # How many times indexing was picked up again after a server restart (reset when one finishes).
+    resumes: Mapped[int] = mapped_column(Integer, default=0)
     # Re-read the website automatically: off | daily | weekly (only changed content is re-embedded).
     reindex_schedule: Mapped[str] = mapped_column(String(10), default="off")
     # Admin's per-bot model choice (a providers "ref" such as "m:3"); None uses the default.
@@ -211,6 +213,10 @@ class Embed(Base):
     secret_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     secret_last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reviewed_by: Mapped[str] = mapped_column(String(320), default="")
+    # Domain verification: proving control of the website approves the request without waiting for an admin.
+    verify_token: Mapped[str] = mapped_column(String(64), default="")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_via: Mapped[str] = mapped_column(String(10), default="")  # meta | dns
     # A weekly summary email to the owner (chats, top and unanswered questions, leads, spend).
     weekly_report: Mapped[bool] = mapped_column(Boolean, default=True)
     last_report_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

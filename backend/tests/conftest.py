@@ -23,6 +23,7 @@ os.environ.update(
     SENTRY_DSN="",
     APP_URL="",
     SCHEDULER_ENABLED="false",
+    REDIS_URL="",
 )
 
 import jwt  # noqa: E402

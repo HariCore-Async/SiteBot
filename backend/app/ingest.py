@@ -20,9 +20,10 @@ EMBED_BATCH = 64
 
 _running: set[int] = set()
 _running_lock = threading.Lock()
-# One website is indexed at a time: each crawl runs a headless browser and the embedding model, and several at once
-# can exhaust a small server's memory. Others wait their turn in the queue.
-_one_at_a_time = threading.Semaphore(1)
+# A few websites are indexed at a time (INDEX_CONCURRENCY, default 1): each crawl runs a headless browser and the
+# embedding model, and several at once can exhaust a small server's memory. Others wait their turn, in order.
+_slots = threading.Semaphore(max(1, settings.index_concurrency))
+_waiting: list[int] = []  # site ids in the order they joined the queue
 _stop_requested: set[int] = set()
 
 
@@ -80,26 +81,94 @@ def start_ingestion(site_id: int) -> bool:
     return True
 
 
+def queue_position(site_id: int) -> int:
+    """How many websites are ahead of this one in the queue (0 if it isn't waiting)."""
+    with _running_lock:
+        return _waiting.index(site_id) if site_id in _waiting else 0
+
+
+def _set_message(site_id: int, message: str) -> None:
+    db = SessionLocal()
+    try:
+        site = db.get(Site, site_id)
+        if site:
+            site.status = "queued"
+            site.message = message
+            db.commit()
+    finally:
+        db.close()
+
+
 def _run(site_id: int) -> None:
     try:
-        if not _one_at_a_time.acquire(blocking=False):
-            db = SessionLocal()
-            try:
-                site = db.get(Site, site_id)
-                site.status = "queued"
-                site.message = "Waiting for another website to finish indexing…"
-                db.commit()
-            finally:
-                db.close()
-            _one_at_a_time.acquire()
+        if not _slots.acquire(blocking=False):
+            with _running_lock:
+                _waiting.append(site_id)
+            _set_message(site_id, "Waiting in line for another website to finish indexing…")
+            # Wait our turn in order: only the first in line takes a free slot.
+            while True:
+                if _slots.acquire(timeout=2):
+                    with _running_lock:
+                        first = _waiting and _waiting[0] == site_id
+                        if first:
+                            _waiting.pop(0)
+                    if first:
+                        break
+                    _slots.release()
+                if stop_requested(site_id):
+                    with _running_lock:
+                        if site_id in _waiting:
+                            _waiting.remove(site_id)
+                    _finish_waiting_stop(site_id)
+                    return
         try:
             run_ingestion(site_id)
         finally:
-            _one_at_a_time.release()
+            _slots.release()
     finally:
         with _running_lock:
             _running.discard(site_id)
             _stop_requested.discard(site_id)
+
+
+def _finish_waiting_stop(site_id: int) -> None:
+    """Stopped while still waiting in line: nothing was crawled, so the live version (if any) just carries on."""
+    db = SessionLocal()
+    try:
+        site = db.get(Site, site_id)
+        if site:
+            site.status = "ready" if site.generation > 0 else "failed"
+            site.message = "Stopped before it started."
+            db.commit()
+    finally:
+        db.close()
+
+
+def resume_interrupted() -> int:
+    """After a restart, start again the indexing that was waiting or running when the server stopped. A website that
+    has already been resumed twice is given up on, so one that keeps crashing the server can't loop forever."""
+    db = SessionLocal()
+    resumed = 0
+    try:
+        for site in db.scalars(select(Site).where(Site.status == "queued", Site.message == RESUME_MESSAGE)):
+            if site.resumes >= 2:
+                site.status = "ready" if site.generation > 0 else "failed"
+                site.message = "Indexing kept being interrupted, so it was stopped. Please try again."
+                site.resumes = 0
+            else:
+                site.resumes += 1
+                db.commit()
+                if start_ingestion(site.id):
+                    resumed += 1
+        db.commit()
+    finally:
+        db.close()
+    if resumed:
+        log.info("Resumed %d interrupted indexing job(s)", resumed)
+    return resumed
+
+
+RESUME_MESSAGE = "Picking up again after a server restart…"
 
 
 def run_ingestion(site_id: int) -> None:
@@ -210,6 +279,7 @@ def run_ingestion(site_id: int) -> None:
 
         # Swap: the new generation goes live, then the old one is removed.
         site.generation = gen
+        site.resumes = 0
         site.status = "ready"
         site.indexed_at = utcnow()
         site.suggestions = None  # regenerated from the new pages on next request

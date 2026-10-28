@@ -183,6 +183,10 @@ class MemberUpdate(BaseModel):
     role: str = Field(pattern="^(viewer|editor)$")
 
 
+class VerifyIn(BaseModel):
+    method: str = Field(pattern="^(meta|dns)$")
+
+
 class ScheduleIn(BaseModel):
     reindex_schedule: str = Field(pattern="^(off|daily|weekly)$")
 

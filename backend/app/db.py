@@ -85,12 +85,14 @@ def init_db() -> None:
         conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS fast_model VARCHAR(40)"))
         conn.execute(text("ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS provider VARCHAR(100) NOT NULL DEFAULT ''"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS last_seen_origin VARCHAR(300) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS resumes INTEGER NOT NULL DEFAULT 0"))
+        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verify_token VARCHAR(64) NOT NULL DEFAULT ''"))
+        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verified_via VARCHAR(10) NOT NULL DEFAULT ''"))
     with engine.begin() as conn:
-        # A crawl that was running when the server stopped can never finish; mark it so it can be retried.
+        # Indexing that was waiting or running when the server stopped starts again (ingest.resume_interrupted). Its
+        # half-built generation was removed above, so it starts clean; the live version keeps answering meanwhile.
         conn.execute(
-            text(
-                "UPDATE sites SET status = CASE WHEN generation > 0 THEN 'ready' ELSE 'failed' END, "
-                "message = 'Indexing was interrupted by a server restart. Please try again.' "
-                "WHERE status IN ('queued', 'crawling', 'embedding')"
-            )
+            text("UPDATE sites SET status = 'queued', message = :m WHERE status IN ('queued', 'crawling', 'embedding')"),
+            {"m": "Picking up again after a server restart…"},
         )

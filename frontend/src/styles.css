@@ -3471,3 +3471,17 @@ td select {
   margin-left: 6px;
   font-size: 11px;
 }
+.verify-way {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.verify-way > span {
+  grid-column: 1 / -1;
+}
+.verification code {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
