@@ -101,8 +101,30 @@ cd backend && ../.venv/Scripts/pip install pytest && ../.venv/Scripts/python -m 
 ```
 
 The tests use a separate database (`sitebot_test` on the docker compose Postgres, created automatically; override with
-`TEST_DATABASE_URL`) and fake the AI and embedding calls, so they need no API keys and download nothing. GitHub Actions
-runs them, plus a frontend build, on every pull request (`.github/workflows/ci.yml`).
+`TEST_DATABASE_URL`) and fake the AI and embedding calls, so they need no API keys and download nothing.
+
+**End-to-end tests** run the real backend and the built frontend in a real browser, with a stand-in AI and a fictional
+shop as test data (see [e2e/README.md](e2e/README.md)):
+
+```bash
+cd frontend && npm run build && cd ..
+.venv/Scripts/python -m pytest e2e -q
+```
+
+GitHub Actions runs the backend tests, the end-to-end tests and a frontend build on every pull request
+(`.github/workflows/ci.yml`).
+
+### Database changes
+
+The schema lives in `backend/app/models.py`; changes to it go through Alembic migrations in `backend/migrations/`, which
+the app applies at startup (`app/db.py: migrate`, safe with several copies starting at once). After changing a model:
+
+```bash
+cd backend && ../.venv/Scripts/alembic revision --autogenerate -m "what changed"
+```
+
+Read the generated file before committing it. A test (`tests/test_migrations.py`) fails if the models and migrations
+ever disagree.
 
 
 ## Deploy to Railway
@@ -128,6 +150,8 @@ runs them, plus a frontend build, on every pull request (`.github/workflows/ci.y
 5. **Domain:** in Settings → Networking → **Generate Domain**. Sign in with an `ADMIN_EMAILS` account and approve others under **Admin → Access**.
 
 Keep one replica: indexing jobs run inside the web process.
+
+A staging copy (its own database, deployed from a `staging` branch) is described in [docs/STAGING.md](docs/STAGING.md).
 
 ## Configuration
 
