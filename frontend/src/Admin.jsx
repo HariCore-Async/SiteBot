@@ -26,6 +26,24 @@ function Users({ me, onUsageChange, billing }) {
     }
   };
 
+  const [confirmAsk, confirmDialog] = useConfirm();
+  const [signedOut, setSignedOut] = useState({});
+  const signOut = async (u) => {
+    const ok = await confirmAsk({
+      title: `Sign out ${u.name || u.email}?`,
+      message: "Ends their sessions on every device. They can sign in again unless you also remove their access.",
+      confirmLabel: "Sign out everywhere",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/api/admin/users/${u.id}/sign-out`);
+      setSignedOut((s) => ({ ...s, [u.id]: true }));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   const update = async (u, body) => {
     setError("");
     try {
@@ -51,6 +69,7 @@ function Users({ me, onUsageChange, billing }) {
               <th>Limit (USD)</th>
               {billing && <th>Plan</th>}
               <th>Last seen</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -113,12 +132,22 @@ function Users({ me, onUsageChange, billing }) {
                     </td>
                   )}
                   <td className="muted small">{timeAgo(u.last_seen_at)}</td>
+                  <td className="actions">
+                    {signedOut[u.id] ? (
+                      <span className="muted small">Signed out</span>
+                    ) : (
+                      <button className="btn ghost small" onClick={() => signOut(u)}>
+                        Sign out
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+      {confirmDialog}
     </section>
   );
 }
@@ -535,8 +564,101 @@ function Embeds() {
           </table>
         </div>
       )}
+      <TestWebsitesReview />
       {confirmDialog}
     </section>
+  );
+}
+
+/** Every chatbot's test websites. Real websites (https) added by non-admins wait here for approval. */
+function TestWebsitesReview() {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState("");
+  const load = useCallback(() => api.get("/api/admin/test-origins").then(setRows).catch((e) => setError(e.message)), []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const act = async (fn) => {
+    setError("");
+    try {
+      await fn();
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  if (!rows) return null;
+  const waiting = rows.filter((r) => r.status === "pending").length;
+  return (
+    <div className="test-origins-review">
+      <h3>
+        Test websites {waiting > 0 && <span className="pill warn-pill">{waiting} waiting</span>}
+      </h3>
+      <p className="muted small">
+        Extra places a chatbot may run while its owner tests it. Your own computer (localhost) works straight away for a week; real websites need your
+        approval.
+      </p>
+      {error && <p className="error">{error}</p>}
+      {!rows.length ? (
+        <p className="muted small">None.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Website</th>
+                <th>Chatbot</th>
+                <th>Added by</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={`${r.embed_id} ${r.origin}`}>
+                  <td>
+                    <code>{r.origin}</code>
+                  </td>
+                  <td>
+                    {r.bot} Chatbot
+                    <div className="muted small">{r.owner}</div>
+                  </td>
+                  <td className="muted small">
+                    {r.added_by}
+                    <div>{timeAgo(r.added_at)}</div>
+                  </td>
+                  <td>
+                    {r.status === "pending" ? (
+                      <span className="pill warn-pill">Waiting</span>
+                    ) : r.active ? (
+                      <span className="muted small">{r.expires_at ? "Active (localhost)" : "Active"}</span>
+                    ) : (
+                      <span className="muted small">Expired</span>
+                    )}
+                  </td>
+                  <td className="actions">
+                    {r.status === "pending" && (
+                      <button
+                        className="btn small primary"
+                        onClick={() => act(() => api.post(`/api/admin/embeds/${r.embed_id}/test-origins/approve`, { origin: r.origin }))}
+                      >
+                        Approve
+                      </button>
+                    )}
+                    <button
+                      className="btn ghost small danger"
+                      onClick={() => act(() => api.del(`/api/admin/embeds/${r.embed_id}/test-origins?${new URLSearchParams({ origin: r.origin })}`))}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -680,12 +802,37 @@ function Plans() {
 
 const TABS = ["Users", "Access", "Bots", "Embeds", "AI providers", "Budget"];
 
+/** AI providers that ran out of credit or keep failing. They clear by themselves once the provider works again. */
+function ProviderAlerts({ onOpen }) {
+  const [alerts, setAlerts] = useState([]);
+  useEffect(() => {
+    api.get("/api/admin/ai/health").then((h) => setAlerts(h.alerts)).catch(() => {});
+  }, []);
+  const dismiss = async (a) => {
+    await api.post(`/api/admin/ai/alerts/${a.id}/dismiss`).catch(() => {});
+    setAlerts((list) => list.filter((x) => x.id !== a.id));
+  };
+  return alerts.map((a) => (
+    <div key={a.id} className="banner rejected provider-alert" role="alert">
+      <strong>{a.kind === "credit" ? `${a.provider} is out of credit` : `${a.provider} keeps failing (${a.failures} errors)`}</strong> <span className="small">({a.model})</span>.{" "}
+      Chatbots use the next model if a fallback is set; otherwise they can't answer. Last error {timeAgo(a.last_at)}: {a.message.slice(0, 160)}{" "}
+      <button className="link-btn" onClick={onOpen}>
+        AI providers
+      </button>{" "}
+      <button className="link-btn" onClick={() => dismiss(a)}>
+        Dismiss
+      </button>
+    </div>
+  ));
+}
+
 export default function Admin({ me, sites, refreshSites, onUsageChange, billing = false }) {
   const [tab, setTab] = useState("Users");
   const tabs = billing ? [...TABS, "Plans"] : TABS;
   return (
     <div className="page admin">
       <h1>Admin console</h1>
+      <ProviderAlerts onOpen={() => setTab("AI providers")} />
       <Tabs label="Admin sections" value={tab} onChange={setTab} tabs={tabs.map((t) => [t, t])} />
       {tab === "Users" && <Users me={me} onUsageChange={onUsageChange} billing={billing} />}
       {tab === "Access" && <Access />}

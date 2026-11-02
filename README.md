@@ -57,6 +57,8 @@ Home → **Add a chatbot to your website** (or the sidebar's **Add to your websi
   insights) or **editors** (also design, knowledge, leads, schedule). Keys, the team and removal stay with the owner.
 - **Widget extras:** an optional pop-up greeting after a few seconds (once per visit), and suggested questions ordered by
   the page the visitor is on (embed.js sends the page address without its query string).
+- **AI provider alerts:** when a provider runs out of credit (HTTP 402) or fails 5 times in 10 minutes, admins get an email (at most once an hour, if email is set up) and a red banner in the Admin console until it works again or is dismissed. Admin console → AI providers shows requests, errors and spend per provider for the last 24 hours.
+- **Sessions:** Settings → *Sign out of all devices* ends every session of that account; admins can do the same for any user (Admin console → Users → *Sign out*).
 - **Domain verification:** the owner adds a meta tag to the home page or a DNS TXT record (Usage & settings); once it
   checks out, a waiting request goes live without an admin. A request an admin already reviewed keeps the admin's
   decision.
@@ -149,6 +151,7 @@ Keep one replica: indexing jobs run inside the web process.
 
 Backups: see [docs/BACKUPS.md](docs/BACKUPS.md).
 | `SENTRY_DSN` / `SENTRY_BROWSER_DSN` | *(empty)* | error monitoring for the server / browsers; off when empty |
+| `SECRET_KEY_PREVIOUS` | *(empty)* | while rotating `SECRET_KEY`: the old value, so people stay signed in; remove it after a week |
 
 ## Limits
 

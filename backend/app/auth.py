@@ -79,7 +79,7 @@ def login_user(
     db.commit()
 
     token = jwt.encode(
-        {"sub": str(user.id), "exp": datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)},
+        {"sub": str(user.id), "tv": user.token_version or 0, "exp": datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)},
         settings.secret_key,
         algorithm="HS256",
     )
@@ -98,15 +98,36 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         raise HTTPException(401, "Not signed in")
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-    except jwt.PyJWTError:
+    payload = decode_session(token)
+    if payload is None:
         raise HTTPException(401, "Session expired")
     user = db.get(User, int(payload["sub"]))
     # Re-check access on every request so revoking a grant takes effect immediately.
     if not user or not has_access(db, user.email):
         raise HTTPException(401, "Access revoked")
+    # "Sign out everywhere" bumps the version, which ends every session issued before it.
+    if payload.get("tv", 0) != (user.token_version or 0):
+        raise HTTPException(401, "Signed out. Please sign in again.")
     return user
+
+
+def decode_session(token: str) -> dict | None:
+    """The session's contents, signed with SECRET_KEY or, during a rotation, SECRET_KEY_PREVIOUS."""
+    for key in (settings.secret_key, settings.secret_key_previous):
+        if not key:
+            continue
+        try:
+            return jwt.decode(token, key, algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            return None
+        except jwt.PyJWTError:
+            continue
+    return None
+
+
+def sign_out_everywhere(db: Session, user: User) -> None:
+    user.token_version = (user.token_version or 0) + 1
+    db.commit()
 
 
 def admin_user(user: User = Depends(current_user)) -> User:

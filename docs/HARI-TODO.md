@@ -10,7 +10,10 @@ service's **Variables** tab (Railway redeploys automatically).
 - [ ] Your PC's clock was ~3 s behind; Windows Settings > Time & language > Date & time > *Sync now*. (Sign-in now
       tolerates 10 s of difference, so this is no longer required, just good practice.)
 
+- Next time you change `SECRET_KEY`: put the old value in `SECRET_KEY_PREVIOUS` for a week so nobody is signed out, then delete it.
+
 ## AI providers (Admin console > AI providers), optional
+- [ ] Set a **fallback model** (ideally from a second provider), so one empty account doesn't stop every bot. Out-of-credit and failing providers now show a red banner in the Admin console, and are emailed to admins once email (Resend) is set up.
 - [ ] **Before adding any provider API key on Railway, set `PROVIDER_KEYS_SECRET`** to a long random string (same command
       as above). Saved keys are encrypted with it. Without it they're encrypted with a key derived from `SECRET_KEY`, so
       if you then change `SECRET_KEY`, saved provider keys stop working and must be re-entered. Easiest order:

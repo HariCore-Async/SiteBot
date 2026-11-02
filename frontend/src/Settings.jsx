@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "./api.js";
+import { useConfirm } from "./Confirm.jsx";
 
 function UsernameForm({ me, onUpdated }) {
   const [username, setUsername] = useState(me.username || "");
@@ -97,6 +98,38 @@ export default function Settings({ me, onUpdated }) {
       </div>
       <UsernameForm me={me} onUpdated={onUpdated} />
       <PasswordForm me={me} onUpdated={onUpdated} />
+      <SignOutEverywhere />
+    </div>
+  );
+}
+
+function SignOutEverywhere() {
+  const [confirmAsk, confirmDialog] = useConfirm();
+  const [error, setError] = useState("");
+  const run = async () => {
+    const ok = await confirmAsk({
+      title: "Sign out of all devices?",
+      message: "This ends every SiteBot session of your account, on every device and browser, including this one.",
+      confirmLabel: "Sign out everywhere",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.post("/api/auth/logout-everywhere");
+      window.location.reload();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  return (
+    <div className="settings-card">
+      <h2>Sessions</h2>
+      <p className="muted">Lost a device, or signed in on a shared computer? Sign out everywhere, then sign in again here.</p>
+      {error && <p className="error">{error}</p>}
+      <button className="btn danger-solid" onClick={run}>
+        Sign out of all devices
+      </button>
+      {confirmDialog}
     </div>
   );
 }

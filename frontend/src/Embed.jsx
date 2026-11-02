@@ -588,7 +588,9 @@ function TestWebsites({ embed, onChanged }) {
     <section className="test-websites">
       <div className="test-websites-head">
         <h3>Test websites</h3>
-        <span className="muted small">For testing on your computer or a staging site. Localhost entries switch off after 7 days.</span>
+        <span className="muted small">
+          For testing on your computer or a staging site. Localhost entries switch off after 7 days; other websites need an admin's approval.
+        </span>
       </div>
       {embed.test_origins.length > 0 && (
         <ul className="test-origin-list">
@@ -596,7 +598,13 @@ function TestWebsites({ embed, onChanged }) {
             <li key={t.origin} className={t.active ? "" : "expired"}>
               <code>{t.origin}</code>
               <span className="muted small">
-                {!t.active ? "Expired" : t.expires_at ? `${daysLeft(t.expires_at)} day${daysLeft(t.expires_at) === 1 ? "" : "s"} left` : "No expiry"}
+                {t.status === "pending"
+                  ? "Waiting for admin approval"
+                  : !t.active
+                    ? "Expired"
+                    : t.expires_at
+                      ? `${daysLeft(t.expires_at)} day${daysLeft(t.expires_at) === 1 ? "" : "s"} left`
+                      : "No expiry"}
               </span>
               {canEdit && (
                 <span className="actions">

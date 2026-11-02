@@ -19,7 +19,9 @@ http = httpx.Client(timeout=httpx.Timeout(90, connect=15))
 
 
 class LLMError(Exception):
-    pass
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = status  # the provider's HTTP status (402: out of credit), 0 if it couldn't connect
 
 
 # ---------- Building requests ----------
@@ -86,7 +88,13 @@ def _chars(messages) -> int:
 
 
 def _fail(t, r: httpx.Response, body: str) -> LLMError:
-    return LLMError(f"{t.label}: error {r.status_code}: {body[:300]}")
+    return LLMError(f"{t.label}: error {r.status_code}: {body[:300]}", r.status_code)
+
+
+def _error_status(error) -> int:
+    """Some providers answer 200 with an error inside (OpenRouter puts the real status in error.code)."""
+    code = error.get("code") if isinstance(error, dict) else None
+    return code if isinstance(code, int) else 0
 
 
 # ---------- One model ----------
@@ -101,7 +109,7 @@ def complete_with(t, messages: list[dict], max_tokens: int = 300) -> tuple[str, 
         raise _fail(t, r, r.text)
     data = r.json()
     if "error" in data:
-        raise LLMError(f"{t.label}: {data['error']}")
+        raise LLMError(f"{t.label}: {data['error']}", _error_status(data["error"]))
     if t.kind == "anthropic":
         text = "".join(b.get("text", "") for b in data.get("content") or [] if b.get("type") == "text")
     else:
@@ -125,7 +133,7 @@ def stream_with(t, messages: list[dict], max_tokens: int = 900) -> Iterator[tupl
                     break
                 data = json.loads(payload)
                 if "error" in data and data.get("type") != "message_delta":
-                    raise LLMError(f"{t.label}: {data['error']}")
+                    raise LLMError(f"{t.label}: {data['error']}", _error_status(data["error"]))
                 if t.kind == "anthropic":
                     kind = data.get("type")
                     if kind == "message_start":
@@ -165,14 +173,30 @@ def _targets(purpose: str, site_id: int | None):
     return chain
 
 
+def _failed(t, e: LLMError) -> None:
+    from . import health
+
+    health.record_failure(t.label.split(" · ")[0], t.model, e.status, str(e))
+
+
+def _worked(t) -> None:
+    from . import health
+
+    health.record_success(t.label.split(" · ")[0], t.model)
+
+
 def complete(purpose: str, messages: list[dict], max_tokens: int = 300, site_id: int | None = None) -> tuple[str, dict]:
     errors = []
     for t in _targets(purpose, site_id):
         try:
-            return complete_with(t, messages, max_tokens)
+            result = complete_with(t, messages, max_tokens)
         except LLMError as e:
             log.warning("AI call failed, trying the next model: %s", e)
+            _failed(t, e)
             errors.append(str(e))
+            continue
+        _worked(t)
+        return result
     raise LLMError("; ".join(errors))
 
 
@@ -184,12 +208,15 @@ def stream(purpose: str, messages: list[dict], max_tokens: int = 900, site_id: i
             for kind, payload in stream_with(t, messages, max_tokens):
                 started = started or kind == "token"
                 yield kind, payload
-            return
         except LLMError as e:
+            _failed(t, e)
             if started:
                 raise
             log.warning("AI stream failed before any text, trying the next model: %s", e)
             errors.append(str(e))
+            continue
+        _worked(t)
+        return
     raise LLMError("; ".join(errors))
 
 

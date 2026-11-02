@@ -96,14 +96,22 @@ def is_loopback_origin(origin: str) -> bool:
     return (urlparse(origin).hostname or "") in LOOPBACK_HOSTS
 
 
-def new_test_origin(origin: str, user: User) -> dict:
-    """Your own computer's addresses switch off after a week, so a forgotten one doesn't stay open; renew to keep it."""
+def new_test_origin(origin: str, user: User, status: str | None = None) -> dict:
+    """Your own computer's addresses switch off after a week, so a forgotten one doesn't stay open; renew to keep it.
+    A real website (https) put there by anyone but an admin waits for an admin's approval, like the chatbot itself."""
     now = datetime.now(timezone.utc)
-    expires = now + timedelta(days=LOCAL_TEST_DAYS) if is_loopback_origin(origin) else None
-    return {"origin": origin, "added_at": now.isoformat(), "expires_at": expires.isoformat() if expires else None, "added_by": user.email}
+    local = is_loopback_origin(origin)
+    expires = now + timedelta(days=LOCAL_TEST_DAYS) if local else None
+    status = status or ("approved" if local or user.role == "admin" else "pending")
+    return {
+        "origin": origin, "added_at": now.isoformat(), "expires_at": expires.isoformat() if expires else None,
+        "added_by": user.email, "status": status,
+    }
 
 
 def test_origin_active(entry: dict) -> bool:
+    if entry.get("status", "approved") != "approved":
+        return False
     expires = entry.get("expires_at")
     return not expires or datetime.fromisoformat(expires) > datetime.now(timezone.utc)
 

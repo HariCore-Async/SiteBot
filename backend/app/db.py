@@ -91,6 +91,7 @@ def init_db() -> None:
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verified_via VARCHAR(10) NOT NULL DEFAULT ''"))
         conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS test_origins JSON"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0"))
     with engine.begin() as conn:
         # Indexing that was waiting or running when the server stopped starts again (ingest.resume_interrupted). Its
         # half-built generation was removed above, so it starts clean; the live version keeps answering meanwhile.

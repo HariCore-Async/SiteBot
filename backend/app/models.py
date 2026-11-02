@@ -41,6 +41,8 @@ class User(Base):
     limit_usd: Mapped[float] = mapped_column(Float, default=settings.default_user_limit_usd)
     # Billing scaffolding (BILLING_ENABLED): the plan an admin assigned. Not enforced or charged yet.
     plan_id: Mapped[int | None] = mapped_column(ForeignKey("plans.id", ondelete="SET NULL"), nullable=True)
+    # Bumped to sign the user out everywhere: sessions carry the version they were issued with.
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -369,3 +371,33 @@ class UsageEvent(Base):
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class AIFailure(Base):
+    """One failed AI call (before falling back to the next model), for the AI health panel and provider alerts."""
+
+    __tablename__ = "ai_failures"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(100), index=True)
+    model: Mapped[str] = mapped_column(String(200), default="")
+    status: Mapped[int] = mapped_column(Integer, default=0)  # HTTP status, 0 when it couldn't connect
+    message: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ProviderAlert(Base):
+    """An AI provider that ran out of credit or keeps failing. Shown to admins until it works again or is dismissed."""
+
+    __tablename__ = "provider_alerts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(100), index=True)
+    model: Mapped[str] = mapped_column(String(200), default="")
+    kind: Mapped[str] = mapped_column(String(20))  # credit | failing
+    message: Mapped[str] = mapped_column(Text, default="")
+    failures: Mapped[int] = mapped_column(Integer, default=1)
+    first_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
