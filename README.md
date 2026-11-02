@@ -173,6 +173,7 @@ A staging copy (its own database, deployed from a `staging` branch) is described
 | `APP_URL` | *(empty)* | public address, for links in notification emails |
 | `SCHEDULER_ENABLED` / `SCHEDULER_INTERVAL_SECONDS` | `true` / `600` | background jobs: scheduled re-index, weekly reports |
 | `INDEX_CONCURRENCY` | `1` | websites indexed at once; the rest wait in line (and resume after a restart) |
+| `IP_QUESTIONS_PER_MINUTE` / `IP_QUESTIONS_PER_DAY` / `IP_READS_PER_MINUTE` | `20` / `300` / `60` | website visitors per network address (questions; opening the widget and loading history) |
 | `REDIS_URL` | *(empty)* | shared rate limits across several app copies; in-memory when empty |
 | `BILLING_ENABLED` | `false` | shows the admin **Plans** screen (records only: nothing is charged or enforced); see `docs/BILLING.md` |
 
