@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # Public address of this app (e.g. https://sitebot.example.com), used for links in notification emails.
     app_url: str = ""
 
+    # Website visitors per network address: questions, and cheap reads (opening the widget, loading history). Many
+    # visitors can share one address (an office), so these are looser than the per-visitor limit.
+    ip_questions_per_minute: int = 20
+    ip_questions_per_day: int = 300
+    ip_reads_per_minute: int = 60
     # Shared rate limits across several copies of the app (optional), e.g. redis://default:pass@host:6379/0.
     redis_url: str = ""
 

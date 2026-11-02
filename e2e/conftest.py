@@ -47,6 +47,10 @@ SERVER_ENV = {
     "REDIS_URL": "",
     "VERIFY_ANSWERS": "true",
     "ENABLE_PLAYWRIGHT": "false",
+    # Every test talks from 127.0.0.1, much faster than real visitors; the per-visitor limit stays as it is.
+    "IP_QUESTIONS_PER_MINUTE": "100000",
+    "IP_QUESTIONS_PER_DAY": "100000",
+    "IP_READS_PER_MINUTE": "100000",
 }
 os.environ.update(SERVER_ENV)
 sys.path.insert(0, str(ROOT / "backend"))
