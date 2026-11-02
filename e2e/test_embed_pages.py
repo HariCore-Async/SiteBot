@@ -35,6 +35,8 @@ def test_admin_embed_pages(env, browser, check):
     check("Design: options left, live preview right", page.eval_on_selector(".design-tab", "el => { const [a, b] = el.children; return a.getBoundingClientRect().left < b.getBoundingClientRect().left && Math.abs(a.getBoundingClientRect().top - b.getBoundingClientRect().top) < 5; }"))
     page.fill("input[placeholder='Acme Outdoor']", "Ask Acme")
     page.click("button:has-text('Save changes')")
+    # The preview updates while typing, so wait for the save itself (otherwise leaving asks to discard changes).
+    page.wait_for_selector("button:has-text('Save changes'):disabled", timeout=15000)
     page.frame_locator(".embed-preview iframe").locator(".w-head:has-text('Ask Acme')").wait_for(timeout=15000)
 
     page.click("role=tab[name='Install']")
@@ -53,6 +55,13 @@ def test_admin_embed_pages(env, browser, check):
     w.fill("textarea", "hi")
     w.press("textarea", "Enter")
     w.wait_for_selector(".w-msg.assistant >> nth=1", timeout=30000)
+    # The reply is saved just after it's shown; closing the page earlier can leave it unsaved.
+    A = env.api("admin")
+    for _ in range(50):
+        chats = A.get(f"{B}/api/embeds/{eid}/chats").json()
+        if chats and chats[0]["messages"] >= 2:
+            break
+        test.wait_for_timeout(200)
     check("Test it: sample page loads the widget and it answers", "Ask Acme" in w.inner_text(".w-head"))
     test.close()
     page.click("role=tab[name='Custom UI (browser)']")
