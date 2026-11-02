@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import accounts
+from .. import accounts, answer_cache
 from ..auth import current_user
 from ..chat import answer_stream
 from ..db import SessionLocal, get_db
@@ -81,6 +81,8 @@ def save_feedback(db: Session, e: Embed, message: Message | None, rating: str, c
         db.add(fb)
     fb.rating, fb.comment = rating, comment.strip()
     db.commit()
+    if rating == "down":
+        answer_cache.forget(db, e.site_id, message.content)
     return {"ok": True}
 
 

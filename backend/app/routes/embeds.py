@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import accounts, verify
+from .. import accounts, evals, verify
 from ..auth import current_user
 from ..config import settings
 from ..db import get_db
@@ -25,10 +25,11 @@ from ..embeds import (
     parse_test_origin,
     sanitize_css,
 )
-from ..models import Chat, Embed, EmbedMember, Lead, Message, Site, User, utcnow
+from ..models import Chat, Embed, EmbedMember, EvalQuestion, EvalRun, Lead, Message, Site, User, utcnow
 from ..schemas import (
     EmbedIn,
     EmbedUpdate,
+    EvalQuestionIn,
     LeadUpdate,
     MemberIn,
     MemberUpdate,
@@ -406,3 +407,69 @@ def update_lead(embed_id: int, lead_id: int, body: LeadUpdate, user: User = Depe
     lead.status = body.status
     db.commit()
     return lead_out(lead)
+
+
+# ---------- Test questions: does the chatbot still answer what it should? ----------
+
+@router.get("/api/embeds/{embed_id}/evals")
+def list_evals(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    own_embed(db, embed_id, user, "viewer")
+    questions = db.scalars(select(EvalQuestion).where(EvalQuestion.embed_id == embed_id).order_by(EvalQuestion.id)).all()
+    runs = db.scalars(select(EvalRun).where(EvalRun.embed_id == embed_id).order_by(EvalRun.id.desc()).limit(evals.KEEP_RUNS)).all()
+    return {
+        "questions": [evals.question_out(q) for q in questions], "max_questions": evals.MAX_QUESTIONS,
+        "runs": [evals.run_out(r) for r in runs], "latest": evals.run_out(runs[0], full=True) if runs else None,
+        "running": evals.is_running(embed_id),
+    }
+
+
+@router.post("/api/embeds/{embed_id}/evals/questions")
+def add_eval_question(embed_id: int, body: EvalQuestionIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    own_embed(db, embed_id, user, "editor")
+    if db.scalar(select(func.count(EvalQuestion.id)).where(EvalQuestion.embed_id == embed_id)) >= evals.MAX_QUESTIONS:
+        raise HTTPException(400, f"A chatbot can have up to {evals.MAX_QUESTIONS} test questions.")
+    q = EvalQuestion(embed_id=embed_id, question=evals.clean_question(body.question), expected=body.expected.strip(), mode=body.mode)
+    db.add(q)
+    db.commit()
+    return evals.question_out(q)
+
+
+@router.put("/api/embeds/{embed_id}/evals/questions/{question_id}")
+def edit_eval_question(embed_id: int, question_id: int, body: EvalQuestionIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    own_embed(db, embed_id, user, "editor")
+    q = db.get(EvalQuestion, question_id)
+    if not q or q.embed_id != embed_id:
+        raise HTTPException(404, "Question not found")
+    q.question, q.expected, q.mode = evals.clean_question(body.question), body.expected.strip(), body.mode
+    db.commit()
+    return evals.question_out(q)
+
+
+@router.delete("/api/embeds/{embed_id}/evals/questions/{question_id}")
+def delete_eval_question(embed_id: int, question_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    own_embed(db, embed_id, user, "editor")
+    q = db.get(EvalQuestion, question_id)
+    if not q or q.embed_id != embed_id:
+        raise HTTPException(404, "Question not found")
+    db.delete(q)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/embeds/{embed_id}/evals/run")
+def run_evals(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    own_embed(db, embed_id, user, "editor")
+    if evals.is_running(embed_id):
+        raise HTTPException(409, "A run is already going.")
+    if not evals.start(embed_id, "manual"):
+        raise HTTPException(400, "Add a test question first.")
+    return {"ok": True}
+
+
+@router.get("/api/embeds/{embed_id}/evals/runs/{run_id}")
+def get_eval_run(embed_id: int, run_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    own_embed(db, embed_id, user, "viewer")
+    r = db.get(EvalRun, run_id)
+    if not r or r.embed_id != embed_id:
+        raise HTTPException(404, "Run not found")
+    return evals.run_out(r, full=True)

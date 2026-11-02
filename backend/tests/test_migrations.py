@@ -28,11 +28,11 @@ def test_database_from_before_migrations_is_upgraded_in_place():
         conn.execute(sa.text(f'CREATE DATABASE "{name}"'))
     legacy = sa.create_engine(url.set(database=name))
     try:
-        # Built the old way (create_all at startup), missing some columns that were added later, with data in it.
+        # As the old startup code left it: the baseline schema without Alembic's record, missing some columns that
+        # were added later, with data in it.
+        migrate(legacy, "0001")
         with legacy.begin() as conn:
-            conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
-        Base.metadata.create_all(legacy)
-        with legacy.begin() as conn:
+            conn.execute(sa.text("DROP TABLE alembic_version"))
             conn.execute(sa.text("ALTER TABLE users DROP COLUMN token_version"))
             conn.execute(sa.text("ALTER TABLE embeds DROP COLUMN test_origins"))
             conn.execute(sa.text("INSERT INTO users (email, name, picture, role, email_verified, limit_usd, created_at, last_seen_at) "

@@ -27,7 +27,7 @@ MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
 MIGRATION_LOCK = 4242001
 
 
-def migrate(bind=None) -> None:
+def migrate(bind=None, target: str = "head") -> None:
     """Brings the database schema up to date (backend/migrations). Safe on a new database and on one from before
     migrations existed (the baseline only adds what's missing)."""
     import logging
@@ -42,7 +42,7 @@ def migrate(bind=None) -> None:
         conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": MIGRATION_LOCK})
         try:
             cfg.attributes["connection"] = conn
-            command.upgrade(cfg, "head")
+            command.upgrade(cfg, target)
             conn.commit()
         finally:
             conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": MIGRATION_LOCK})
@@ -68,4 +68,9 @@ def init_db() -> None:
         conn.execute(
             text("UPDATE sites SET status = 'queued', message = :m WHERE status IN ('queued', 'crawling', 'embedding')"),
             {"m": "Picking up again after a server restart…"},
+        )
+        # Test question runs live in memory while they run; one cut short by a restart won't finish.
+        conn.execute(
+            text("UPDATE eval_runs SET status = 'failed', message = :m, finished_at = now() WHERE status = 'running'"),
+            {"m": "Stopped by a server restart. Run it again."},
         )
