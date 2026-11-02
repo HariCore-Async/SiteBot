@@ -24,6 +24,9 @@ RUN pip install -r requirements.txt \
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed')"
 
 COPY backend/app ./app
+# Database migrations, applied at startup (app/db.py: migrate).
+COPY backend/migrations ./migrations
+COPY backend/alembic.ini ./alembic.ini
 COPY --from=frontend /frontend/dist ./static
 
 EXPOSE 8000
