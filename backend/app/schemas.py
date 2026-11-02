@@ -115,6 +115,10 @@ class EmbedUpdate(BaseModel):
     weekly_report: bool | None = None
 
 
+class TestOriginIn(BaseModel):
+    origin: str = Field(min_length=1, max_length=300)
+
+
 class EmbedReview(BaseModel):
     status: str | None = Field(default=None, pattern="^(approved|rejected|pending)$")
     daily_cap_usd: float | None = Field(default=None, ge=0, le=1000)

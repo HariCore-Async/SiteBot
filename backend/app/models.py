@@ -218,6 +218,9 @@ class Embed(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # On: only the bot's own domain (and subdomains) may use it. Only an admin can turn this off.
     restrict_to_domain: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Extra websites allowed besides the bot's own domain, for testing: [{origin, added_at, expires_at|null, added_by}].
+    # Your own computer's addresses (http://localhost:5175) expire after a week; https websites don't.
+    test_origins: Mapped[list | None] = mapped_column(JSON, nullable=True)
     color: Mapped[str] = mapped_column(String(20), default="#2563eb")
     greeting: Mapped[str] = mapped_column(Text, default="")
     position: Mapped[str] = mapped_column(String(10), default="right")  # right | left
