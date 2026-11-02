@@ -522,6 +522,7 @@ function InstallTab({ embed, sub, onSub, onChanged }) {
             <span className="muted small">Opens a sample page with your widget, so you can try it before adding it to your website.</span>
           </div>
           <InstallCheck embed={embed} />
+          <TestWebsites embed={embed} onChanged={onChanged} />
           <PlatformGuides snippet={snippetFor(embed.key)} />
         </div>
       )}
@@ -533,6 +534,7 @@ function InstallTab({ embed, sub, onSub, onChanged }) {
             <code>SiteBot.connect({"{"} key: "{embed.key}" {"}"})</code>. It uses your public key, so it works {where}.
           </p>
           <CopyBox text={`<script src="${base}/sitebot-client.js"></script>`} />
+          <TestWebsites embed={embed} onChanged={onChanged} />
           <Tabs tabs={CLIENT_EXAMPLES} value={clientLang} onChange={setClientLang} className="code-tabs" />
           <CodeBlock code={clientLang === "react" ? ex.react : plainExample(embed, base)} />
         </div>
@@ -554,6 +556,93 @@ function InstallTab({ embed, sub, onSub, onChanged }) {
         </div>
       )}
     </div>
+  );
+}
+
+function daysLeft(iso) {
+  return Math.max(0, Math.ceil((new Date(iso) - Date.now()) / 86400000));
+}
+
+/** Extra websites this bot may run on while testing: your own computer, or a staging site. */
+function TestWebsites({ embed, onChanged }) {
+  const [origin, setOrigin] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const canEdit = embed.my_role !== "viewer";
+  const run = async (fn) => {
+    setError("");
+    setBusy(true);
+    try {
+      onChanged(await fn());
+      return true;
+    } catch (e) {
+      setError(e.message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const base = `/api/embeds/${embed.id}/test-origins`;
+
+  return (
+    <section className="test-websites">
+      <div className="test-websites-head">
+        <h3>Test websites</h3>
+        <span className="muted small">For testing on your computer or a staging site. Localhost entries switch off after 7 days.</span>
+      </div>
+      {embed.test_origins.length > 0 && (
+        <ul className="test-origin-list">
+          {embed.test_origins.map((t) => (
+            <li key={t.origin} className={t.active ? "" : "expired"}>
+              <code>{t.origin}</code>
+              <span className="muted small">
+                {!t.active ? "Expired" : t.expires_at ? `${daysLeft(t.expires_at)} day${daysLeft(t.expires_at) === 1 ? "" : "s"} left` : "No expiry"}
+              </span>
+              {canEdit && (
+                <span className="actions">
+                  {t.expires_at && (
+                    <button className="btn ghost small" disabled={busy} onClick={() => run(() => api.post(`${base}/renew`, { origin: t.origin }))}>
+                      Renew
+                    </button>
+                  )}
+                  <button
+                    className="btn ghost small danger"
+                    disabled={busy}
+                    aria-label={`Remove ${t.origin}`}
+                    onClick={() => run(() => api.del(`${base}?${new URLSearchParams({ origin: t.origin })}`))}
+                  >
+                    Remove
+                  </button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canEdit ? (
+        <form
+          className="inline-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (origin.trim() && (await run(() => api.post(base, { origin: origin.trim() })))) setOrigin("");
+          }}
+        >
+          <input
+            value={origin}
+            onChange={(e) => setOrigin(e.target.value)}
+            placeholder="http://localhost:5175 or https://staging.example.com"
+            aria-label="Test website address"
+            maxLength={300}
+          />
+          <button className="btn small" disabled={busy || !origin.trim()}>
+            Add
+          </button>
+        </form>
+      ) : (
+        !embed.test_origins.length && <p className="muted small">None.</p>
+      )}
+      {error && <p className="error">{error}</p>}
+    </section>
   );
 }
 

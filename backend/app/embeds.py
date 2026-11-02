@@ -60,11 +60,68 @@ def clean_origin(origin: str) -> str:
     return (origin or "").strip().rstrip("/").lower()[:300]
 
 
+MAX_TEST_ORIGINS = 10
+LOCAL_TEST_DAYS = 7
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$")
+
+
+def parse_test_origin(raw: str) -> str:
+    """A test website as browsers report it: scheme://host[:port]. Your own computer (localhost, 127.0.0.1, [::1]) over
+    http or https, or any real domain over https. No other http, no other IP addresses, no wildcards."""
+    text = (raw or "").strip().lower()
+    bad = HTTPException(400, f"\"{(raw or '').strip()[:80]}\" isn't a website address we can allow. Use one like http://localhost:5175 or https://staging.example.com.")
+    if "*" in text:
+        raise HTTPException(400, "Wildcards aren't allowed: add each website separately.")
+    if text and "://" not in text:
+        text = ("http://" if text.split("/")[0].rsplit(":", 1)[0].strip("[]") in LOOPBACK_HOSTS else "https://") + text
+    p = urlparse(text)
+    try:
+        port = p.port
+    except ValueError:
+        raise bad from None
+    host = (p.hostname or "").rstrip(".")
+    if p.scheme not in ("http", "https") or not host or p.username or p.password or p.path.strip("/") or p.query or p.fragment:
+        raise bad
+    if host not in LOOPBACK_HOSTS:
+        if not DOMAIN_RE.match(host):
+            raise HTTPException(400, "Only your own computer (localhost, 127.0.0.1) can be added by address; other websites need a domain name.")
+        if p.scheme != "https":
+            raise HTTPException(400, "Websites other than your own computer must use https.")
+    shown = f"[{host}]" if ":" in host else host
+    return f"{p.scheme}://{shown}" + (f":{port}" if port else "")
+
+
+def is_loopback_origin(origin: str) -> bool:
+    return (urlparse(origin).hostname or "") in LOOPBACK_HOSTS
+
+
+def new_test_origin(origin: str, user: User) -> dict:
+    """Your own computer's addresses switch off after a week, so a forgotten one doesn't stay open; renew to keep it."""
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(days=LOCAL_TEST_DAYS) if is_loopback_origin(origin) else None
+    return {"origin": origin, "added_at": now.isoformat(), "expires_at": expires.isoformat() if expires else None, "added_by": user.email}
+
+
+def test_origin_active(entry: dict) -> bool:
+    expires = entry.get("expires_at")
+    return not expires or datetime.fromisoformat(expires) > datetime.now(timezone.utc)
+
+
+def active_test_origins(e: Embed) -> list[str]:
+    return [t["origin"] for t in (e.test_origins or []) if test_origin_active(t)]
+
+
+def is_test_origin(e: Embed, origin: str) -> bool:
+    return clean_origin(origin) in active_test_origins(e)
+
+
 def origin_allowed(e: Embed, site: Site, origin: str) -> bool:
     """By default a bot runs only on its own website: the domain itself, www. and any subdomain, over HTTPS.
-    An admin can lift that for one embed (restrict_to_domain off); then any HTTPS website may use it."""
+    An admin can lift that for one embed (restrict_to_domain off); then any HTTPS website may use it.
+    The embed's test websites (e.g. http://localhost:5175) are always allowed too."""
     origin = clean_origin(origin)
-    if origin in settings.embed_dev_origin_list:
+    if origin in settings.embed_dev_origin_list or is_test_origin(e, origin):
         return True
     p = urlparse(origin)
     host = (p.hostname or "").rstrip(".")
@@ -75,9 +132,10 @@ def origin_allowed(e: Embed, site: Site, origin: str) -> bool:
 
 def frame_ancestors(e: Embed, site: Site) -> str:
     """CSP for the widget page, so browsers refuse to show it inside any other website."""
+    extra = [*settings.embed_dev_origin_list, *active_test_origins(e)]
     if not e.restrict_to_domain:
-        return "frame-ancestors 'self' https: " + " ".join(settings.embed_dev_origin_list)
-    sources = ["'self'", f"https://{site.domain}", f"https://*.{site.domain}", *settings.embed_dev_origin_list]
+        return "frame-ancestors 'self' https: " + " ".join(extra)
+    sources = ["'self'", f"https://{site.domain}", f"https://*.{site.domain}", *extra]
     return "frame-ancestors " + " ".join(sources)
 
 
@@ -222,7 +280,7 @@ def embed_out(db: Session, e: Embed, site: Site) -> dict:
     return {
         "id": e.id, "key": e.key, "site_id": e.site_id, "status": e.status, "enabled": e.enabled,
         "color": e.color, "greeting": e.greeting, "position": e.position, "daily_cap_usd": e.daily_cap_usd,
-        "style": style_of(e), "restrict_to_domain": e.restrict_to_domain,
+        "style": style_of(e), "restrict_to_domain": e.restrict_to_domain, "test_origins": [{**t, "active": test_origin_active(t)} for t in (e.test_origins or [])],
         "server_key": {
             "hint": e.secret_hint,
             "created_at": e.secret_created_at.isoformat() if e.secret_created_at else None,

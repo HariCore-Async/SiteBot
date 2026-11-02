@@ -11,8 +11,8 @@ from app.embeds import RateLimiter, normalize_question, origin_allowed, sanitize
 from app.xlsx import to_xlsx
 
 SITE = SimpleNamespace(domain="shop.example")
-LOCKED = SimpleNamespace(restrict_to_domain=True)
-OPEN = SimpleNamespace(restrict_to_domain=False)
+LOCKED = SimpleNamespace(restrict_to_domain=True, test_origins=None)
+OPEN = SimpleNamespace(restrict_to_domain=False, test_origins=None)
 
 
 def test_domain_lock_allows_own_domain_www_and_subdomains():

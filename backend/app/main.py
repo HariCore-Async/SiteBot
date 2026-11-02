@@ -26,7 +26,7 @@ from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .embeds import (
     admin_embed_out, check_visitor, clean_origin, client_ip, effective_origin, embed_out, hash_secret, ip_limiter, is_cross_site,
-    insights, new_key, new_secret, note_seen, origin_allowed, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
+    insights, new_key, new_secret, is_test_origin, MAX_TEST_ORIGINS, new_test_origin, note_seen, origin_allowed, parse_test_origin, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
 from .ingest import is_running, request_stop, resume_interrupted, start_ingestion
 from .models import AccessGrant, AIModel, Plan, AIProvider, Chat, Embed, EmbedMember, Feedback, Knowledge, Lead, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
@@ -34,7 +34,7 @@ from .knowledge import knowledge_out
 from .providers import encrypt_key, provider_out
 from .suggest import for_page, get_suggestions
 from .schemas import (
-    AddSite, AdminSettingsIn, AIDefaults, AITest, AnswerIn, Ask, DocumentIn, LeadIn, LeadUpdate, MemberIn, MemberUpdate, PlanIn, ScheduleIn, UserPlanIn, VerifyIn, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, PasswordLogin, ResendCode, SignUp, UserUpdate,
+    AddSite, AdminSettingsIn, AIDefaults, AITest, AnswerIn, Ask, DocumentIn, LeadIn, LeadUpdate, MemberIn, MemberUpdate, PlanIn, ScheduleIn, UserPlanIn, VerifyIn, ModelIn, ModelUpdate, ProviderIn, ProviderUpdate, SiteModels, BudgetIn, ChangePassword, EmbedIn, EmbedReview, EmbedUpdate, ForgotPassword, ReindexIn, ResetPassword, SetUsername, GoogleLogin, GrantIn, NewChat, TestOriginIn, PasswordLogin, ResendCode, SignUp, UserUpdate,
     ServerAsk, ServerFeedback, VerifyCode, VisitorAsk, VisitorFeedback, site_out, user_out,
 )
 from .xlsx import to_xlsx
@@ -664,6 +664,40 @@ def update_embed(embed_id: int, body: EmbedUpdate, user: User = Depends(current_
     return embed_view(db, e, user)
 
 
+# ---------- Test websites: extra places this bot may run while testing (e.g. http://localhost:5175) ----------
+
+@app.post("/api/embeds/{embed_id}/test-origins")
+def add_test_origin(embed_id: int, body: TestOriginIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user, "editor")
+    origin = parse_test_origin(body.origin)
+    entries = [t for t in (e.test_origins or []) if t["origin"] != origin]
+    if len(entries) >= MAX_TEST_ORIGINS:
+        raise HTTPException(400, f"You can have up to {MAX_TEST_ORIGINS} test websites. Remove one first.")
+    # Adding one that's already there renews it.
+    e.test_origins = [*entries, new_test_origin(origin, user)]
+    db.commit()
+    return embed_view(db, e, user)
+
+
+@app.post("/api/embeds/{embed_id}/test-origins/renew")
+def renew_test_origin(embed_id: int, body: TestOriginIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user, "editor")
+    origin = parse_test_origin(body.origin)
+    if not any(t["origin"] == origin for t in e.test_origins or []):
+        raise HTTPException(404, "That test website isn't on the list.")
+    e.test_origins = [new_test_origin(origin, user) if t["origin"] == origin else t for t in e.test_origins]
+    db.commit()
+    return embed_view(db, e, user)
+
+
+@app.delete("/api/embeds/{embed_id}/test-origins")
+def remove_test_origin(embed_id: int, origin: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    e = own_embed(db, embed_id, user, "editor")
+    e.test_origins = [t for t in (e.test_origins or []) if t["origin"] != clean_origin(origin)]
+    db.commit()
+    return embed_view(db, e, user)
+
+
 @app.post("/api/embeds/{embed_id}/rotate-key")
 def rotate_embed_key(embed_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Issues a new key; the old snippet stops working straight away."""
@@ -981,8 +1015,10 @@ def widget_config(
     limit_reads(request)
     e, site, owner = live_embed(db, request, key, origin, preview)
     # Every page load on a website asks for this, so it doubles as "Check installation". Previews don't count.
-    if not (preview and not is_cross_site(request)):
-        note_seen(db, e, effective_origin(request, origin))
+    # Test websites don't count either, so "installed" means the real website.
+    seen_at = effective_origin(request, origin)
+    if not (preview and not is_cross_site(request)) and not is_test_origin(e, seen_at):
+        note_seen(db, e, seen_at)
     info = bot_info(db, e, site, owner)
     if page:
         # Page-aware suggestions: the questions closest to the page the visitor is reading come first.
@@ -1014,7 +1050,8 @@ def widget_ask(key: str, body: VisitorAsk, request: Request, db: Session = Depen
     # Where the visitor is chatting from, so owners can see which websites use their bot.
     testing = body.preview and not is_cross_site(request)
     chat.origin = "SiteBot preview" if testing else clean_origin(effective_origin(request, body.origin))
-    chat.is_test = chat.is_test or testing
+    # Chats from a test website are the owner trying it, so they're kept out of visitor numbers like previews.
+    chat.is_test = chat.is_test or testing or is_test_origin(e, chat.origin)
     db.commit()
     return ndjson(visitor_events(owner.id, chat.id, e.id, body.content.strip()))
 

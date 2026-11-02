@@ -47,6 +47,7 @@ The Embed page sets the colour, position, theme (light, dark or auto), font, cor
 ```
 
 - It only works on the bot's own domain, `www.` and its subdomains, over HTTPS. The browser's `Origin` header is checked on every call. An admin can switch off "Only allow on <domain>" for an embed; then any HTTPS website may use it, the widget included.
+- **Test websites:** to try the bot somewhere else first, add the address under Install → *Test websites*: your own computer (`http://localhost:5175`, `http://127.0.0.1:3000`, `http://[::1]:5173`) or a staging site over HTTPS (`https://staging.example.com`). Owners and editors can add up to 10. Localhost entries switch off after 7 days (renew to keep them); HTTPS entries don't expire. Chats from them are marked as test chats and still count toward the daily cap and rate limits. Other `http://` addresses, other IP addresses and wildcards aren't accepted.
 - `SiteBot.connect` options:
   - `key` (required).
   - `host`: defaults to where the script was loaded from.
