@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "./Confirm.jsx";
-import { api } from "./api.js";
+import { api, money, timeAgo } from "./api.js";
 
 // Admin console > AI providers: connect AI services, list their models and prices, and choose which model answers.
 
@@ -360,6 +360,56 @@ function AddProvider({ kinds, onSaved }) {
   );
 }
 
+/** The last 24 hours per provider: calls, failures, spend and the latest error. */
+function Health() {
+  const [health, setHealth] = useState(null);
+  useEffect(() => {
+    api.get("/api/admin/ai/health").then(setHealth).catch(() => setHealth({ providers: [] }));
+  }, []);
+  if (!health) return null;
+  return (
+    <section className="way ai-health">
+      <strong>AI health, last 24 hours</strong>
+      {!health.providers.length ? (
+        <p className="muted small">No AI calls in the last 24 hours.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Requests</th>
+                <th>Errors</th>
+                <th>Spend</th>
+                <th>Last error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {health.providers.map((p) => (
+                <tr key={p.provider}>
+                  <td className="strong">{p.provider}</td>
+                  <td>{p.requests}</td>
+                  <td className={p.errors ? "danger-text" : ""}>{p.errors}</td>
+                  <td>{money(p.spend_usd)}</td>
+                  <td className="muted small">
+                    {p.last_error ? (
+                      <>
+                        {timeAgo(p.last_error.at)}: {p.last_error.message.slice(0, 120)}
+                      </>
+                    ) : (
+                      "None"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function AIProviders() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -370,6 +420,7 @@ export default function AIProviders() {
   if (!data) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
   return (
     <div className="ai-providers">
+      <Health />
       {/* Re-read the saved defaults when the available models change (e.g. a provider was removed), not on every save. */}
       <Defaults key={modelChoices(data).map(([r]) => r).join()} data={data} onSaved={setData} />
       {data.env.available && (

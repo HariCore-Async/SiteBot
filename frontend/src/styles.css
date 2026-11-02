@@ -3549,3 +3549,25 @@ td select {
   min-width: 0;
   max-width: 420px;
 }
+
+/* Admin: AI health, provider alerts, test-website review */
+.danger-text {
+  color: var(--danger, #d64545);
+  font-weight: 600;
+}
+.ai-health table {
+  margin-top: 8px;
+}
+.provider-alert {
+  margin-bottom: 12px;
+}
+.test-origins-review {
+  margin-top: 28px;
+}
+.test-origins-review h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 16px;
+}

@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import accounts, auth, knowledge, llm, providers, scheduler, verify
+from . import accounts, auth, health, knowledge, llm, providers, scheduler, verify
 from .auth import admin_user, current_user, email_domain, is_org_domain, login_user
 from .chat import answer_stream
 from .config import settings
@@ -26,7 +26,7 @@ from .db import SessionLocal, get_db, init_db
 from .embeddings import warm_up
 from .embeds import (
     admin_embed_out, check_visitor, clean_origin, client_ip, effective_origin, embed_out, hash_secret, ip_limiter, is_cross_site,
-    insights, new_key, new_secret, is_test_origin, MAX_TEST_ORIGINS, new_test_origin, note_seen, origin_allowed, parse_test_origin, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
+    insights, new_key, new_secret, is_test_origin, MAX_TEST_ORIGINS, new_test_origin, test_origin_active, note_seen, origin_allowed, parse_test_origin, read_limiter, sanitize_css, server_key_embed, server_limiter, style_of, visitor_limiter, widget_csp,
 )
 from .ingest import is_running, request_stop, resume_interrupted, start_ingestion
 from .models import AccessGrant, AIModel, Plan, AIProvider, Chat, Embed, EmbedMember, Feedback, Knowledge, Lead, HiddenSite, Message, Page, Site, UsageEvent, User, utcnow
@@ -239,6 +239,14 @@ def set_username(body: SetUsername, user: User = Depends(current_user), db: Sess
 
 @app.post("/api/auth/logout")
 def logout(response: Response):
+    response.delete_cookie(auth.COOKIE_NAME)
+    return {"ok": True}
+
+
+@app.post("/api/auth/logout-everywhere")
+def logout_everywhere(response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Ends every session of this account, on every device, including this one."""
+    auth.sign_out_everywhere(db, user)
     response.delete_cookie(auth.COOKIE_NAME)
     return {"ok": True}
 
@@ -670,12 +678,23 @@ def update_embed(embed_id: int, body: EmbedUpdate, user: User = Depends(current_
 def add_test_origin(embed_id: int, body: TestOriginIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     e = own_embed(db, embed_id, user, "editor")
     origin = parse_test_origin(body.origin)
+    before = next((t for t in e.test_origins or [] if t["origin"] == origin), None)
     entries = [t for t in (e.test_origins or []) if t["origin"] != origin]
     if len(entries) >= MAX_TEST_ORIGINS:
         raise HTTPException(400, f"You can have up to {MAX_TEST_ORIGINS} test websites. Remove one first.")
-    # Adding one that's already there renews it.
-    e.test_origins = [*entries, new_test_origin(origin, user)]
+    # Adding one that's already there renews it (an approved one stays approved).
+    entry = new_test_origin(origin, user, "approved" if before and before.get("status", "approved") == "approved" else None)
+    e.test_origins = [*entries, entry]
     db.commit()
+    if entry["status"] == "pending" and not before:
+        site = db.get(Site, e.site_id)
+        admins = list(db.scalars(select(User.email).where(User.role == "admin"))) + sorted(settings.admin_email_set)
+        accounts.notify(
+            admins,
+            f"SiteBot: {user.name or user.email} wants to test {site.name} Chatbot on {origin}",
+            f"{user.name} ({user.email}) added {origin} as a test website for {site.name} Chatbot.\n\n"
+            f"Approve or remove it in SiteBot: Admin console > Embeds > Test websites.{app_link()}",
+        )
     return embed_view(db, e, user)
 
 
@@ -685,7 +704,7 @@ def renew_test_origin(embed_id: int, body: TestOriginIn, user: User = Depends(cu
     origin = parse_test_origin(body.origin)
     if not any(t["origin"] == origin for t in e.test_origins or []):
         raise HTTPException(404, "That test website isn't on the list.")
-    e.test_origins = [new_test_origin(origin, user) if t["origin"] == origin else t for t in e.test_origins]
+    e.test_origins = [new_test_origin(origin, user, t.get("status", "approved")) if t["origin"] == origin else t for t in e.test_origins]
     db.commit()
     return embed_view(db, e, user)
 
@@ -1351,6 +1370,54 @@ def admin_user_plan(user_id: int, body: UserPlanIn, _: User = Depends(admin_user
     return {"id": u.id, "plan_id": u.plan_id}
 
 
+@app.post("/api/admin/users/{user_id}/sign-out")
+def admin_sign_out_user(user_id: int, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    """Ends every session of that user (they can sign in again unless their access is also removed)."""
+    u = db.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "User not found")
+    auth.sign_out_everywhere(db, u)
+    return {"ok": True}
+
+
+@app.get("/api/admin/test-origins")
+def admin_test_origins(_: User = Depends(admin_user), db: Session = Depends(get_db)):
+    """Every chatbot's test websites, waiting ones first."""
+    rows = []
+    for e in db.scalars(select(Embed).where(Embed.test_origins.isnot(None))):
+        site, owner = db.get(Site, e.site_id), db.get(User, e.owner_id)
+        for t in e.test_origins or []:
+            rows.append({
+                **t, "status": t.get("status", "approved"), "active": test_origin_active(t), "embed_id": e.id,
+                "bot": site.name if site else "", "owner": owner.email if owner else "",
+            })
+    return sorted(rows, key=lambda r: (r["status"] != "pending", r["bot"], r["origin"]))
+
+
+def admin_embed_entry(db: Session, embed_id: int, origin: str) -> tuple[Embed, str]:
+    e = db.get(Embed, embed_id)
+    origin = clean_origin(origin)
+    if not e or not any(t["origin"] == origin for t in e.test_origins or []):
+        raise HTTPException(404, "That test website isn't on the list.")
+    return e, origin
+
+
+@app.post("/api/admin/embeds/{embed_id}/test-origins/approve")
+def admin_approve_test_origin(embed_id: int, body: TestOriginIn, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    e, origin = admin_embed_entry(db, embed_id, body.origin)
+    e.test_origins = [{**t, "status": "approved"} if t["origin"] == origin else t for t in e.test_origins]
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/admin/embeds/{embed_id}/test-origins")
+def admin_remove_test_origin(embed_id: int, origin: str, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    e, origin = admin_embed_entry(db, embed_id, origin)
+    e.test_origins = [t for t in e.test_origins if t["origin"] != origin]
+    db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/admin/embeds")
 def admin_embeds(_: User = Depends(admin_user), db: Session = Depends(get_db)):
     embeds = db.scalars(select(Embed).order_by(Embed.created_at.desc())).all()
@@ -1410,6 +1477,18 @@ def check_base_url(kind: str, base_url: str) -> str:
     if kind in ("azure", "openai_compatible") and not base_url:
         raise HTTPException(400, "This kind of provider needs its base URL.")
     return base_url
+
+
+@app.get("/api/admin/ai/health")
+def admin_ai_health(_: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return health.summary(db)
+
+
+@app.post("/api/admin/ai/alerts/{alert_id}/dismiss")
+def admin_dismiss_alert(alert_id: int, _: User = Depends(admin_user), db: Session = Depends(get_db)):
+    if not health.dismiss(db, alert_id):
+        raise HTTPException(404, "Alert not found")
+    return {"ok": True}
 
 
 @app.get("/api/admin/ai")

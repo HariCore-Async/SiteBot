@@ -8,6 +8,8 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://sitebot:sitebot@localhost:5433/sitebot"
     secret_key: str = "change-me"
+    # While rotating SECRET_KEY: set this to the old value for a week so people stay signed in, then remove it.
+    secret_key_previous: str = ""
     # Comma-separated emails that are always admins.
     admin_emails: str = ""
     google_client_id: str = ""
