@@ -275,9 +275,9 @@ class RateLimiter:
 
 # Questions cost money, so they're limited per visitor and per network address.
 visitor_limiter = RateLimiter([(6, 60), (60, 3600)], "visitor")
-ip_limiter = RateLimiter([(20, 60), (300, 86400)], "ip")
+ip_limiter = RateLimiter([(settings.ip_questions_per_minute, 60), (settings.ip_questions_per_day, 86400)], "ip")
 # Cheap reads (opening the widget, loading history) get a looser limit.
-read_limiter = RateLimiter([(60, 60)], "read")
+read_limiter = RateLimiter([(settings.ip_reads_per_minute, 60)], "read")
 # A customer's server sends all its users' questions from one address, so server keys are limited per embed instead.
 server_limiter = RateLimiter([(120, 60), (3000, 3600)], "server")
 
