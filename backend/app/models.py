@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
+    Boolean,
     Computed,
     DateTime,
     Float,
@@ -11,7 +12,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    Boolean,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -401,3 +401,51 @@ class ProviderAlert(Base):
     emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AnswerCache(Base):
+    """A checked answer to a first question, reused when the same question comes again, so it costs nothing. The key
+    covers the bot's live index and answer model; the rows are cleared when the bot is taught something new."""
+
+    __tablename__ = "answer_cache"
+    __table_args__ = (UniqueConstraint("site_id", "key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("sites.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(64))
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    sources: Mapped[list] = mapped_column(JSON, default=list)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_hit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EvalQuestion(Base):
+    """A test question for a website chatbot, with what a good answer says, or that the website doesn't cover it."""
+
+    __tablename__ = "eval_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    embed_id: Mapped[int] = mapped_column(ForeignKey("embeds.id", ondelete="CASCADE"), index=True)
+    question: Mapped[str] = mapped_column(Text)
+    expected: Mapped[str] = mapped_column(Text, default="")
+    mode: Mapped[str] = mapped_column(String(20), default="answer")  # answer | not_on_site
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EvalRun(Base):
+    """One run of a chatbot's test questions: on demand, or after the website was re-read."""
+
+    __tablename__ = "eval_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    embed_id: Mapped[int] = mapped_column(ForeignKey("embeds.id", ondelete="CASCADE"), index=True)
+    trigger: Mapped[str] = mapped_column(String(20), default="manual")  # manual | reindex
+    status: Mapped[str] = mapped_column(String(20), default="running")  # running | done | failed
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    passed: Mapped[int] = mapped_column(Integer, default=0)
+    results: Mapped[list] = mapped_column(JSON, default=list)
+    message: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

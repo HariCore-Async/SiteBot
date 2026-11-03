@@ -16,6 +16,7 @@ def test_admin_embed_pages(env, browser, check):
     # The fictional shop's favicon address doesn't exist; any other console error counts.
     page.on("console", lambda m: errors.append("console: " + m.text[:300]) if m.type == "error" and "ERR_NAME_NOT_RESOLVED" not in m.text else None)
     page.goto(B + "/")
+    page.wait_for_selector(".dash-card", timeout=60000)
     page.click(".dash-card:has-text('Add a chatbot to your website')")
     page.wait_for_selector(".empty-embeds")
     check("empty state: 3-step explainer", page.locator(".steps li").count() == 3 and "Paste one line" in page.inner_text(".steps"))

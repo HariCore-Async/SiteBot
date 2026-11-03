@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from . import answer_cache
 from .embeddings import embed_passages
 from .ingest import chunk_text
 from .models import KNOWLEDGE_GENERATION, Chunk, Knowledge, Site, utcnow
@@ -45,6 +46,7 @@ def _index(db: Session, site: Site, k: Knowledge, pieces: list[str]) -> None:
     # New knowledge can answer questions the old suggestions skipped; let them be made again.
     site.suggestions = None
     db.commit()
+    answer_cache.clear(db, site.id)
 
 
 def save_answer(db: Session, site: Site, question: str, answer: str, author_id: int, k: Knowledge | None = None) -> Knowledge:
@@ -117,6 +119,7 @@ def remove(db: Session, site: Site, k: Knowledge) -> None:
     db.delete(k)
     site.suggestions = None
     db.commit()
+    answer_cache.clear(db, site.id)
 
 
 def knowledge_out(k: Knowledge) -> dict:

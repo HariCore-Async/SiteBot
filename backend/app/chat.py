@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import llm
+from . import answer_cache, llm
 from .config import settings
 from .models import Chat, Embed, Message, Site, User, utcnow
 from .retrieval import Hit, retrieve
@@ -103,10 +103,38 @@ def split_sentences(answer: str) -> list[tuple[int, str]]:
     return [u for u in units if u[1]]
 
 
+NUMBER = re.compile(r"\d(?:[\d.,:/-]*\d)?")
+CITATION = re.compile(r"\[\d+\]")
+
+
+def fact_tokens(sentence: str) -> set[str]:
+    """The specific facts a sentence states that can be looked up word for word: numbers (prices, dates, times, phone
+    numbers) and names (capitalised words, except the sentence's first)."""
+    text = CITATION.sub("", sentence)
+    numbers = set(NUMBER.findall(text))
+    words = re.findall(r"[\w'’-]+", text)
+    names = {w for w in words[1:] if w[:1].isupper() and not w.isdigit()}
+    return numbers | names
+
+
+def needs_ai_check(sentence: str, context: str) -> bool:
+    """Whether the AI checker should look at this sentence. Not when it's short framing with no facts ("Yes.",
+    "Good question!"), nor when every number and name in it appears in the excerpts: the checker sometimes flags
+    those anyway, and then a correct answer turns into "I don't know"."""
+    tokens = fact_tokens(sentence)
+    if not tokens:
+        return len(CITATION.sub("", sentence).split()) > 3
+    return not all(t.lower() in context for t in tokens)
+
+
 def verify_answer(db: Session, user: User, hits: list[Hit], answer: str, embed_id: int | None = None, site_id: int | None = None) -> str | None:
     """Removes sentences that state facts the excerpts don't. Returns the checked answer, or None if nothing is left."""
     units = split_sentences(answer)
-    numbered = "\n".join(f"S{k}: {text}" for k, (_, text) in enumerate(units, 1))
+    context = format_context(hits).lower()
+    to_check = [k for k, (_, text) in enumerate(units, 1) if needs_ai_check(text, context)]
+    if not to_check:
+        return answer
+    numbered = "\n".join(f"S{k}: {units[k - 1][1]}" for k in to_check)
 
     def flag_once() -> set[int]:
         text, usage = llm.complete(
@@ -130,7 +158,7 @@ def verify_answer(db: Session, user: User, hits: list[Hit], answer: str, embed_i
             site_id=site_id,
         )
         record_usage(db, user.id, "verify", usage.get("model", ""), usage, embed_id)
-        return {int(n) for n in re.findall(r"S(\d+)", text.upper())}
+        return {int(n) for n in re.findall(r"S(\d+)", text.upper())} & set(to_check)
 
     try:
         flagged = flag_once()
@@ -164,8 +192,9 @@ def verify_answer(db: Session, user: User, hits: list[Hit], answer: str, embed_i
     return result if re.search(r"\[\d+\]", result) else None
 
 
-def answer_stream(db: Session, user: User, chat: Chat, question: str, embed: Embed | None = None) -> Iterator[str]:
-    """With an embed, a website visitor is asking: `user` is the embed's owner, who pays and whose budget stays private."""
+def answer_stream(db: Session, user: User, chat: Chat, question: str, embed: Embed | None = None, use_cache: bool = True) -> Iterator[str]:
+    """With an embed, a website visitor is asking: `user` is the embed's owner, who pays and whose budget stays private.
+    A first question someone already asked is answered from the answer cache (test runs pass use_cache=False)."""
     embed_id = embed.id if embed else None
     site = db.get(Site, chat.site_id)
     if not site or site.generation == 0:
@@ -212,6 +241,13 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str, embed: Emb
         )
         yield event("token", text=text)
         yield from finish(text, [], True)
+        return
+
+    # Only a conversation's first question: follow-ups depend on what came before.
+    cacheable = use_cache and not history
+    if cacheable and (cached := answer_cache.get(db, site, question)):
+        yield event("token", text=cached.answer)
+        yield from finish(cached.answer, cached.sources, True)
         return
 
     try:
@@ -278,6 +314,8 @@ def answer_stream(db: Session, user: User, chat: Chat, question: str, embed: Emb
         if cleaned != answer or not released:
             yield event("replace", text=cleaned)
         sources = [{"n": n, "url": hits[n - 1].url, "title": hits[n - 1].title or hits[n - 1].url} for n in cited]
+        if cacheable:
+            answer_cache.put(db, site, question, cleaned, sources)
         yield from finish(cleaned, sources, True)
     except llm.LLMError as e:
         log.error("LLM error: %s", e)

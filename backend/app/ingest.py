@@ -6,6 +6,7 @@ import threading
 
 from sqlalchemy import delete, func, select
 
+from . import answer_cache
 from .config import settings
 from .crawler import Crawler, CrawlError, PageResult, extract_site_identity
 from .db import SessionLocal
@@ -304,6 +305,10 @@ def run_ingestion(site_id: int) -> None:
         db.execute(delete(Chunk).where(Chunk.site_id == site_id, Chunk.generation != gen, Chunk.generation != KNOWLEDGE_GENERATION))
         db.execute(delete(Page).where(Page.site_id == site_id, Page.generation != gen))
         db.commit()
+        answer_cache.clear(db, site_id)  # answers from the old pages
+        from .evals import after_reindex
+
+        after_reindex(site_id)  # do the website chatbots still answer their test questions?
     except Stopped:
         db.rollback()
         _finish_stopped(db, site_id, updating, gen)

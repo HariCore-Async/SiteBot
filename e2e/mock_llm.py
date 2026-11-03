@@ -15,6 +15,13 @@ def reply_for(body: dict) -> str:
     everything = json.dumps(body["messages"])
     if "check an assistant's answer" in system:
         return "NONE"
+    if "grade a chatbot's answer" in system:
+        # PASS when the expected answer's words all appear in the chatbot's answer.
+        text = body["messages"][-1]["content"]
+        expected = text.split("EXPECTED ANSWER:")[1].split("CHATBOT'S ANSWER:")[0].lower()
+        answer = text.split("CHATBOT'S ANSWER:")[1].lower()
+        words = re.findall(r"[a-z0-9]+", expected)
+        return "PASS same facts" if all(w in answer for w in words) else "FAIL different facts"
     if "standalone search question" in system:
         return body["messages"][-1]["content"].split("LATEST MESSAGE:")[-1].strip()
     if "suggested questions" in system:

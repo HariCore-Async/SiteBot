@@ -4,8 +4,6 @@ import { useConfirm } from "../Confirm.jsx";
 import { api, plural, timeAgo } from "../api.js";
 import { PlusIcon } from "../Icons.jsx";
 
-// ---------- One chatbot's page ----------
-
 // ---------- Knowledge: teach the bot ----------
 
 const MAX_UPLOAD = 10 * 1024 * 1024;

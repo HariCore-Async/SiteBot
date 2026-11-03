@@ -13,7 +13,7 @@ from app.db import SessionLocal, engine, init_db
 from app.embeddings import embed_passages
 from app.embeds import new_key
 from app.models import (
-    AccessGrant, AIFailure, AIModel, AIProvider, AppSetting, Chat, Chunk, Embed, HiddenSite, Knowledge, Page, Plan,
+    AccessGrant, AIFailure, AnswerCache, AIModel, AIProvider, AppSetting, Chat, Chunk, Embed, HiddenSite, Knowledge, Page, Plan,
     ProviderAlert, Site, UsageEvent, User, KNOWLEDGE_GENERATION,
 )
 
@@ -96,7 +96,7 @@ def _site(db, name: str, domain: str, owner: int | None, pages: list[tuple[str, 
 def reset(ids: dict) -> None:
     """Undo whatever earlier tests did: back to the seeded bots, users, AI setup and chats."""
     with SessionLocal() as db:
-        for table in (Embed, Plan, ProviderAlert, AIFailure, UsageEvent, AccessGrant, HiddenSite, Chat):
+        for table in (Embed, Plan, ProviderAlert, AIFailure, UsageEvent, AccessGrant, HiddenSite, Chat, AnswerCache):
             db.execute(delete(table))
         db.execute(delete(Knowledge))
         db.execute(delete(Chunk).where(Chunk.generation == KNOWLEDGE_GENERATION))

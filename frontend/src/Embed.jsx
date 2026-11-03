@@ -9,6 +9,7 @@ import { ConversationsTab } from "./embed/ConversationsTab.jsx";
 import { DesignTab } from "./embed/DesignTab.jsx";
 import { InstallTab } from "./embed/InstallTab.jsx";
 import { KnowledgeTab } from "./embed/KnowledgeTab.jsx";
+import { TestsTab } from "./embed/TestsTab.jsx";
 import { LeadsTab } from "./embed/LeadsTab.jsx";
 import { UsageTab } from "./embed/UsageTab.jsx";
 import { InstallCheck } from "./embed/shared.jsx";
@@ -27,6 +28,7 @@ const BOT_TABS = [
   ["design", "Design"],
   ["install", "Install"],
   ["knowledge", "Knowledge"],
+  ["tests", "Test questions"],
   ["conversations", "Conversations"],
   ["leads", "Leads"],
   ["usage", "Usage & settings"],
@@ -165,6 +167,7 @@ function EmbedBot({ embed, me, tab, sub, onRoute, onChanged, onRemoved }) {
         <InstallTab embed={embed} sub={sub} onSub={(s) => onRoute({ embedId: embed.id, tab: "install", sub: s })} onChanged={onChanged} />
       )}
       {current === "knowledge" && <KnowledgeTab embed={embed} prefill={teach} onPrefillUsed={clearTeach} />}
+      {current === "tests" && <TestsTab embed={embed} />}
       {current === "conversations" && <ConversationsTab embed={embed} onTeach={onTeach} />}
       {current === "leads" && <LeadsTab embed={embed} onChanged={onChanged} />}
       {current === "usage" && (

@@ -16,6 +16,7 @@ Give it a website link; it reads the site's public pages and becomes a chatbot (
    - A strict system prompt with temperature 0. Every fact must cite an excerpt `[n]`; otherwise the model must reply `NOT_FOUND`.
    - Answers without valid citations are rejected in code.
    - A verifier model checks that the answer is supported by the cited excerpts (`VERIFY_ANSWERS`).
+   - A repeated first question is answered from a cache (no AI cost) until the bot is re-indexed or taught something (`ANSWER_CACHE`).
    - Sources are shown under every answer.
 
 ## Features
@@ -57,6 +58,7 @@ Home → **Add a chatbot to your website** (or the sidebar's **Add to your websi
   insights) or **editors** (also design, knowledge, leads, schedule). Keys, the team and removal stay with the owner.
 - **Widget extras:** an optional pop-up greeting after a few seconds (once per visit), and suggested questions ordered by
   the page the visitor is on (embed.js sends the page address without its query string).
+- **Test questions:** per website chatbot, questions it should answer (with what a good answer says) or decline; they run on demand and after every re-index, with pass/fail history. See [docs/QUALITY.md](docs/QUALITY.md).
 - **AI provider alerts:** when a provider runs out of credit (HTTP 402) or fails 5 times in 10 minutes, admins get an email (at most once an hour, if email is set up) and a red banner in the Admin console until it works again or is dismissed. Admin console → AI providers shows requests, errors and spend per provider for the last 24 hours.
 - **Sessions:** Settings → *Sign out of all devices* ends every session of that account; admins can do the same for any user (Admin console → Users → *Sign out*).
 - **Domain verification:** the owner adds a meta tag to the home page or a DNS TXT record (Usage & settings); once it
@@ -160,6 +162,7 @@ A staging copy (its own database, deployed from a `staging` branch) is described
 | `OPENROUTER_MODEL` | `anthropic/claude-haiku-5.5` | answering model |
 | `OPENROUTER_FAST_MODEL` | `anthropic/claude-haiku-5.5` | rewrite + verification |
 | `VERIFY_ANSWERS` | `true` | second-pass grounding check |
+| `ANSWER_CACHE` | `true` | reuse checked answers to repeated first questions; see `docs/QUALITY.md` |
 | `MIN_SIMILARITY` | `0.55` | refusal gate (on-topic questions scored 0.60–0.73 in testing; off-topic 0.43–0.51) |
 | `DEFAULT_USER_LIMIT_USD` | `1` | each new user's limit |
 | `GLOBAL_BUDGET_USD` | `10` | initial overall budget |
@@ -170,6 +173,7 @@ A staging copy (its own database, deployed from a `staging` branch) is described
 | `APP_URL` | *(empty)* | public address, for links in notification emails |
 | `SCHEDULER_ENABLED` / `SCHEDULER_INTERVAL_SECONDS` | `true` / `600` | background jobs: scheduled re-index, weekly reports |
 | `INDEX_CONCURRENCY` | `1` | websites indexed at once; the rest wait in line (and resume after a restart) |
+| `IP_QUESTIONS_PER_MINUTE` / `IP_QUESTIONS_PER_DAY` / `IP_READS_PER_MINUTE` | `20` / `300` / `60` | website visitors per network address (questions; opening the widget and loading history) |
 | `REDIS_URL` | *(empty)* | shared rate limits across several app copies; in-memory when empty |
 | `BILLING_ENABLED` | `false` | shows the admin **Plans** screen (records only: nothing is charged or enforced); see `docs/BILLING.md` |
 

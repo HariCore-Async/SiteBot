@@ -115,6 +115,12 @@ class EmbedUpdate(BaseModel):
     weekly_report: bool | None = None
 
 
+class EvalQuestionIn(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    expected: str = Field(default="", max_length=2000)  # empty: any sourced answer passes
+    mode: str = Field(default="answer", pattern="^(answer|not_on_site)$")
+
+
 class TestOriginIn(BaseModel):
     origin: str = Field(min_length=1, max_length=300)
 
