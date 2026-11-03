@@ -72,7 +72,13 @@ def visit(browser, env, key):
 <script>SiteBot.connect({{ key: '{key}' }}).config().then(c => document.getElementById('status').textContent = 'client OK: ' + c.name).catch(e => document.getElementById('status').textContent = 'client ERROR: ' + e.message);</script>
 <script src='https://sitebot-test.example/embed.js' data-bot='{key}' async></script></body></html>"""
     ctx = browser.new_context(viewport={"width": 1200, "height": 800})
-    ctx.route("https://sitebot-test.example/**", lambda route: route.fulfill(response=route.fetch(url=route.request.url.replace("https://sitebot-test.example", env.B), headers=route.request.all_headers())))
+    def forward(route):
+        try:
+            route.fulfill(response=route.fetch(url=route.request.url.replace("https://sitebot-test.example", env.B), headers=route.request.all_headers()))
+        except Exception:  # the page was closed while a request was on its way: nothing left to answer
+            pass
+
+    ctx.route("https://sitebot-test.example/**", forward)
     page = ctx.new_page()
     page.route("https://other-shop.example/**", lambda route: route.fulfill(status=200, content_type="text/html", body=page_html))
     page.goto("https://other-shop.example/")
@@ -92,6 +98,7 @@ def test_domain_lock_in_a_browser(env, public_browser, check):
         w.fill("textarea", "hi")
         w.press("textarea", "Enter")
         w.wait_for_selector(".w-msg.assistant >> nth=1", timeout=60000)
+        page.wait_for_load_state("networkidle")
         check("lock OFF: a visitor there gets an answer", True)
     ctx.close()
 
