@@ -146,7 +146,7 @@ def test_queue_runs_in_order(monkeypatch):
 def test_redis_limits_are_shared_between_app_copies(monkeypatch):
     monkeypatch.setattr(embeds.settings, "redis_url", os.environ["TEST_REDIS_URL"])
     monkeypatch.setattr(embeds, "_redis_client", None)
-    monkeypatch.setattr(embeds, "_redis_failed_at", 0.0)
+    monkeypatch.setattr(embeds, "_redis_failed_at", None)
     key = f"k{os.getpid()}-{id(object())}"
     one, two = embeds.RateLimiter([(3, 60)], "test"), embeds.RateLimiter([(3, 60)], "test")  # two "servers"
     assert [one.allow(key), two.allow(key), one.allow(key), two.allow(key)] == [True, True, True, False]
@@ -156,7 +156,17 @@ def test_redis_limits_are_shared_between_app_copies(monkeypatch):
 def test_redis_outage_falls_back_to_memory(monkeypatch):
     monkeypatch.setattr(embeds.settings, "redis_url", "redis://127.0.0.1:1/0")  # nothing listens there
     monkeypatch.setattr(embeds, "_redis_client", None)
-    monkeypatch.setattr(embeds, "_redis_failed_at", 0.0)
+    monkeypatch.setattr(embeds, "_redis_failed_at", None)
     rl = embeds.RateLimiter([(2, 60)], "fallback")
     assert [rl.allow("k"), rl.allow("k"), rl.allow("k")] == [True, True, False]
     monkeypatch.setattr(embeds.settings, "redis_url", "")
+
+
+def test_redis_is_used_on_a_machine_that_just_started(monkeypatch):
+    """Redis hasn't failed yet, so it's used even when the clock says the machine started seconds ago."""
+    monkeypatch.setattr(embeds.settings, "redis_url", "redis://example.invalid:6379/0")
+    monkeypatch.setattr(embeds, "_redis_client", None)
+    monkeypatch.setattr(embeds, "_redis_failed_at", None)
+    monkeypatch.setattr(embeds.time, "monotonic", lambda: 5.0)
+    assert embeds._redis() is not None
+    monkeypatch.setattr(embeds, "_redis_client", None)

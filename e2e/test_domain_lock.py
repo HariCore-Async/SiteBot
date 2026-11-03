@@ -91,7 +91,8 @@ def test_domain_lock_in_a_browser(env, public_browser, check):
         w.click(".w-bubble")
         w.fill("textarea", "hi")
         w.press("textarea", "Enter")
-        w.wait_for_selector(".w-rate", timeout=60000)
+        w.wait_for_selector(".w-msg.assistant >> nth=1", timeout=60000)
+        check("lock OFF: a visitor there gets an answer", True)
     ctx.close()
 
     A.patch(f"{B}/api/embeds/{state['eid']}", json={"restrict_to_domain": True})

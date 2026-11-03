@@ -203,14 +203,14 @@ def client_ip(request: Request) -> str:
 
 
 _redis_client = None
-_redis_failed_at = 0.0
+_redis_failed_at: float | None = None  # when Redis last failed (monotonic clock), None if it hasn't
 
 
 def _redis():
     """A shared Redis connection when REDIS_URL is set (so several copies of the app share limits), else None.
     After an error, limits fall back to this process's memory for a minute rather than failing requests."""
     global _redis_client
-    if not settings.redis_url or time.monotonic() - _redis_failed_at < 60:
+    if not settings.redis_url or (_redis_failed_at is not None and time.monotonic() - _redis_failed_at < 60):
         return None
     if _redis_client is None:
         import redis
