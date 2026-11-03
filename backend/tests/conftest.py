@@ -44,7 +44,7 @@ _ensure_database()
 
 from app import embeddings, knowledge, llm, main, retrieval, suggest  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
+from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app.embeds import ip_limiter, read_limiter, server_limiter, visitor_limiter  # noqa: E402
 from app.models import Chunk, Page, Site, User  # noqa: E402
 
@@ -85,9 +85,10 @@ AI = FakeAI()
 
 @pytest.fixture(scope="session", autouse=True)
 def database():
-    Base.metadata.drop_all(engine)
+    # Start from nothing, including tables another branch's migrations may have left behind.
     with engine.begin() as conn:
-        conn.execute(sa.text("DROP TABLE IF EXISTS alembic_version"))
+        conn.execute(sa.text("DROP SCHEMA public CASCADE"))
+        conn.execute(sa.text("CREATE SCHEMA public"))
     init_db()
     yield
 

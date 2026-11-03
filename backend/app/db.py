@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -21,35 +22,40 @@ def get_db() -> Iterator[Session]:
         db.close()
 
 
-def init_db() -> None:
-    from . import models  # noqa: F401  (register tables)
+MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+# Any fixed number: the lock that keeps two copies of the app from migrating the same database at once.
+MIGRATION_LOCK = 4242001
 
+
+def migrate(bind=None) -> None:
+    """Brings the database schema up to date (backend/migrations). Safe on a new database and on one from before
+    migrations existed (the baseline only adds what's missing)."""
+    import logging
+
+    from alembic import command
+    from alembic.config import Config
+
+    logging.getLogger("alembic.runtime.plugins").setLevel(logging.WARNING)
+    cfg = Config()
+    cfg.set_main_option("script_location", str(MIGRATIONS))
+    with (bind or engine).connect() as conn:
+        conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": MIGRATION_LOCK})
+        try:
+            cfg.attributes["connection"] = conn
+            command.upgrade(cfg, "head")
+            conn.commit()
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": MIGRATION_LOCK})
+            conn.commit()
+
+
+def init_db() -> None:
+    migrate()
     with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    Base.metadata.create_all(engine)
-    with engine.begin() as conn:
-        # Columns added after the first release; create_all doesn't alter existing tables.
-        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS suggestions JSON"))
-        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS full_crawl BOOLEAN NOT NULL DEFAULT false"))
-        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS truncated BOOLEAN NOT NULL DEFAULT false"))
-        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS live_pages INTEGER NOT NULL DEFAULT 0"))
         # Leftovers from runs interrupted by a restart: a later run of the same generation would otherwise
         # duplicate them.
         conn.execute(text("DELETE FROM chunks c USING sites s WHERE c.site_id = s.id AND c.generation > s.generation"))
         conn.execute(text("DELETE FROM pages p USING sites s WHERE p.site_id = s.id AND p.generation > s.generation"))
-        # Older versions could leave duplicates inside the live generation the same way; remove them once.
-        conn.execute(
-            text(
-                "DELETE FROM chunks a USING chunks b WHERE a.id > b.id AND a.site_id = b.site_id "
-                "AND a.generation = b.generation AND a.url = b.url AND a.content = b.content"
-            )
-        )
-        conn.execute(
-            text(
-                "DELETE FROM pages a USING pages b WHERE a.id > b.id AND a.site_id = b.site_id "
-                "AND a.generation = b.generation AND a.url = b.url"
-            )
-        )
         # Count the live index's pages from the pages table (progress counters may be left over from an interrupted run).
         conn.execute(
             text(
@@ -57,42 +63,6 @@ def init_db() -> None:
                 "AND p.generation = s.generation AND p.status = 'indexed') WHERE s.generation > 0"
             )
         )
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(40) UNIQUE"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false"))
-        # Website embeds: visitors' chats have no user, and usage remembers which embed caused it.
-        conn.execute(text("ALTER TABLE chats ALTER COLUMN user_id DROP NOT NULL"))
-        conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS embed_id INTEGER REFERENCES embeds(id) ON DELETE CASCADE"))
-        conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS visitor_id VARCHAR(64)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chats_embed_id ON chats (embed_id)"))
-        conn.execute(text("ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS embed_id INTEGER REFERENCES embeds(id) ON DELETE SET NULL"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_usage_events_embed_id ON usage_events (embed_id)"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS style JSON"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_hash VARCHAR(64) UNIQUE"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_hint VARCHAR(12) NOT NULL DEFAULT ''"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_created_at TIMESTAMPTZ"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS restrict_to_domain BOOLEAN NOT NULL DEFAULT true"))
-        conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS origin VARCHAR(300) NOT NULL DEFAULT ''"))
-        conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT false"))
-        conn.execute(text("UPDATE chats SET is_test = true WHERE origin = 'SiteBot preview' AND NOT is_test"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS review_note TEXT NOT NULL DEFAULT ''"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS secret_last_used_at TIMESTAMPTZ"))
-        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS answer_model VARCHAR(40)"))
-        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS reindex_schedule VARCHAR(10) NOT NULL DEFAULT 'off'"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS weekly_report BOOLEAN NOT NULL DEFAULT true"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS last_report_at TIMESTAMPTZ"))
-        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS fast_model VARCHAR(40)"))
-        conn.execute(text("ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS provider VARCHAR(100) NOT NULL DEFAULT ''"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS last_seen_origin VARCHAR(300) NOT NULL DEFAULT ''"))
-        conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS resumes INTEGER NOT NULL DEFAULT 0"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_id INTEGER REFERENCES plans(id) ON DELETE SET NULL"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verify_token VARCHAR(64) NOT NULL DEFAULT ''"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS verified_via VARCHAR(10) NOT NULL DEFAULT ''"))
-        conn.execute(text("ALTER TABLE embeds ADD COLUMN IF NOT EXISTS test_origins JSON"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0"))
-    with engine.begin() as conn:
         # Indexing that was waiting or running when the server stopped starts again (ingest.resume_interrupted). Its
         # half-built generation was removed above, so it starts clean; the live version keeps answering meanwhile.
         conn.execute(

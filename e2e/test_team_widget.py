@@ -1,0 +1,82 @@
+"""The pop-up greeting, the re-index schedule and weekly report switches, and team roles (viewer, editor, leaving)."""
+
+from conftest import MEMBER_EMAIL, SEL, login
+
+
+def test_popup_schedule_and_team(env, browser, check):
+    B, A, M = env.B, env.api("admin"), env.api("member")
+    e = A.post(f"{B}/api/embeds", json={"site_id": env.site_id}).json()
+    eid = e["id"]
+    env.write_pages(e["key"])
+
+    actx, admin, errors = login(browser, env, "admin", 1400, 950)
+    admin.goto(f"{B}/#/website/{eid}/design")
+    admin.wait_for_selector(".design-tab")
+    admin.select_option(".design-tab label:has-text('Pop up a greeting') select", "5")
+    admin.fill(".design-tab label:has-text('Pop-up text') input", "Questions about our gear? Ask me!")
+    admin.click("button:has-text('Save changes')")
+    admin.wait_for_selector("button:has-text('Save changes'):disabled")
+    check("proactive greeting saved", A.get(f"{B}/api/embeds").json()[0]["style"]["proactive_seconds"] == 5)
+
+    visitor = browser.new_context(viewport={"width": 1200, "height": 860}).new_page()
+    visitor.goto(env.ALLOWED + "/")
+    fe = visitor.wait_for_selector(SEL, state="attached")
+    w = fe.content_frame()
+    w.wait_for_selector(".w-bubble")
+    check("no pop-up before the delay", w.locator(".w-teaser").count() == 0)
+    w.wait_for_selector(".w-teaser", timeout=10000)
+    check("pop-up greeting appears after 5 seconds", "Questions about our gear" in w.inner_text(".w-teaser"))
+    height = visitor.evaluate(f"parseInt(document.querySelector(\"{SEL}\").style.height)")
+    check("iframe grows to fit the pop-up", height > 100, height)
+    w.click(".w-teaser-text")
+    w.wait_for_selector(".w-panel")
+    w.click(".w-icon[aria-label='Close chat']")
+    w.wait_for_selector(".w-bubble")
+    visitor.wait_for_timeout(6000)
+    check("pop-up doesn't come back in the same visit", w.locator(".w-teaser").count() == 0)
+    visitor.context.close()
+
+    admin.click("role=tab[name='Usage & settings']")
+    admin.wait_for_selector(".usage-tab select[aria-label='Re-read the website']")
+    admin.select_option("select[aria-label='Re-read the website']", "weekly")
+    admin.wait_for_timeout(800)
+    check("re-index schedule saved", [s for s in A.get(f"{B}/api/sites").json() if s["id"] == env.site_id][0]["reindex_schedule"] == "weekly")
+    admin.click("button[aria-label='Weekly email report']")
+    admin.wait_for_timeout(800)
+    check("weekly report can be switched off", A.get(f"{B}/api/embeds").json()[0]["weekly_report"] is False)
+    admin.click("button[aria-label='Weekly email report']")
+    admin.wait_for_timeout(500)
+
+    admin.fill(".team input[aria-label=\"Teammate's email\"]", MEMBER_EMAIL)
+    admin.click(".team button:has-text('Invite')")
+    admin.wait_for_selector(f".team li:has-text('{MEMBER_EMAIL}')")
+
+    mctx, mem, merrors = login(browser, env, "member", 1400, 950)
+    mem.goto(f"{B}/#/website")
+    mem.wait_for_selector(".embed-tile:has-text('Shared · viewer')")
+    mem.click(".embed-tile:has-text('Shared')")
+    mem.wait_for_selector(".design-tab")
+    mem.fill(".design-tab input[placeholder='Acme Outdoor']", "x")
+    check("viewer can't save the design", mem.locator("button:has-text('Save changes')").is_disabled())
+    mem.click("role=tab[name='Knowledge']")
+    if mem.locator(".modal").count():
+        mem.click(".modal .btn.danger-solid")
+    mem.wait_for_selector(".knowledge-tab")
+    check("viewer: no Add answer / Upload", mem.locator("button:has-text('Add an answer')").count() == 0 and mem.locator(".upload-btn").count() == 0)
+    mem.click("role=tab[name='Usage & settings']")
+    mem.wait_for_selector(".usage-tab")
+    check("viewer: no keys or danger zone", mem.locator(".danger-zone").count() == 0 and mem.locator(".usage-tab strong:text-is('Keys')").count() == 0)
+    check("viewer: schedule read-only", mem.locator("select[aria-label='Re-read the website']").is_disabled())
+
+    mid = A.get(f"{B}/api/embeds/{eid}/team").json()["members"][0]["id"]
+    A.patch(f"{B}/api/embeds/{eid}/team/{mid}", json={"role": "editor"})
+    mem.reload()
+    mem.wait_for_selector(".usage-tab")
+    check("editor: schedule editable, still no keys", not mem.locator("select[aria-label='Re-read the website']").is_disabled() and mem.locator(".danger-zone").count() == 0)
+    mem.locator(".team button:has-text('Leave')").click()
+    mem.click(".modal .btn.danger-solid")
+    mem.wait_for_selector(".empty-embeds, .embed-tile", timeout=10000)
+    check("teammate can leave", M.get(f"{B}/api/embeds").json() == [])
+    check("no page errors", not errors and not merrors, errors + merrors)
+    actx.close()
+    mctx.close()
